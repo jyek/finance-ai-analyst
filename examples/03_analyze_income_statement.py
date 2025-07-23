@@ -64,7 +64,7 @@ def main():
     Read and analyze the "Sample Income Statement" Google Sheet, specifically the "Profit and Loss (Monthly)" tab:
     
     1. Read the Data:
-       - Read all data from the "Profile and Loss (Monthly)" worksheet
+       - Read all data from the "Profit and Loss (Monthly)" worksheet
        - Identify the structure and columns in the data
        - Understand the time periods and financial metrics included
     

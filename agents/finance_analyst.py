@@ -8,11 +8,39 @@ import autogen
 from typing import Dict, Any, List
 from textwrap import dedent
 from tools.workspace import WorkspaceUtils
-from tools.spreadsheet import SpreadsheetUtils
-from tools.dataset_manager import DatasetManager
+from tools.sheet import SheetUtils, SheetAnalyzer
 
 class FinanceAnalystAgent:
-    """Finance Analyst Agent for Google Workspace operations"""
+    """Finance Analyst for analyzing spreadsheet trends"""
+    
+    # Define all tools at class level
+    TOOLS = [
+        # Workspace utilities
+        (WorkspaceUtils.create_google_doc, "create_google_doc", "Create a new Google Doc with specified title and content"),
+        (WorkspaceUtils.create_google_doc_with_images, "create_google_doc_with_images", "Create a new Google Doc with specified title, content, and embedded images"),
+        (WorkspaceUtils.read_google_doc, "read_google_doc", "Read content from a Google Doc"),
+        (WorkspaceUtils.update_google_doc, "update_google_doc", "Update a Google Doc with new content"),
+        (WorkspaceUtils.list_my_sheets, "list_my_sheets", "List Google Sheets accessible to the user"),
+        (WorkspaceUtils.search_sheets_by_content, "search_sheets_by_content", "Search Google Sheets by content"),
+        
+        # Notes management
+        (WorkspaceUtils.create_notes, "create_notes", "Create a notes.md file in the drive folder for the agent to store information"),
+        (WorkspaceUtils.read_notes, "read_notes", "Read the contents of notes.md file"),
+        (WorkspaceUtils.update_notes, "update_notes", "Write content to a specific section of the notes.md file"),
+        (WorkspaceUtils.list_drive_files, "list_drive_files", "List all files in the drive folder"),
+        (WorkspaceUtils.save_dataframe_to_drive, "save_dataframe_to_drive", "Save a dataframe to the drive folder in CSV or JSON format"),
+        
+        # Sheet utilities
+        (SheetUtils.create_empty_sheet, "create_empty_sheet", "Create a new empty Google Sheet"),
+        (SheetUtils.get_income_stmt_to_sheet, "get_income_stmt_to_sheet", "Get income statement data for multiple tickers and save to Google Sheets"),
+        (SheetUtils.run_benchmarking, "run_benchmarking", "Add a benchmarking worksheet to an existing Google Sheet"),
+        (SheetUtils.compute_financial_ratios, "compute_financial_ratios", "Compute financial ratios for all companies in a Google Sheet"),
+        
+        # Sheet analysis
+        (SheetAnalyzer.read_worksheet, "read_worksheet", "Read data from a specific worksheet using structured analysis (runs header identification and data extraction)"),
+        (SheetAnalyzer.read_all_worksheets, "read_all_worksheets", "Read all worksheets from a Google Sheet using structured analysis for each worksheet"),
+        (SheetAnalyzer.analyze_dataframe, "analyze_dataframe", "Analyze DataFrame by identifying important metrics, generating commentary, and creating charts"),
+    ]
     
     @staticmethod
     def create_agent(
@@ -42,41 +70,34 @@ class FinanceAnalystAgent:
             f"""
             Role: Finance Analyst
             Department: Financial Planning and Analysis
-            Primary Responsibility: Managing Google Sheets, Google Docs, and Google Slides for Financial Analysis
+            Primary Responsibility: Help a company understand its financial performance, make better decisions, and plan for the future
 
             Role Description:
-            As a Finance Analyst, you are an expert in managing and analyzing financial data through Google's collaborative tools. You can create, read, and update Google Sheets and Google Docs, making you invaluable for financial analysis workflows. You can access existing Google Sheets, read their data, and provide insights based on the content. You can also create comprehensive financial reports as Google Docs and manage multiple ticker income statements in Google Sheets.
+            As a Finance Analyst, you are an expert in analyzing financial data through structured workflows. You can identify important metrics, generate insightful commentary, and create visual charts from spreadsheet data. You can also manage Google Sheets and Google Docs for comprehensive financial analysis workflows.
 
             Key Capabilities:
 
+            Automated Financial Analysis:
+            - Identify sheet headers and extract structured data from Google Sheets
+            - Automatically identify important financial metrics for analysis
+            - Generate comprehensive commentary with trends and insights
+            - Create visual charts for each important metric
+            - Analyze individual worksheets or entire spreadsheets
+            - Provide step-by-step analysis with clear results
+
             Google Sheets Management:
-            - Save financial analysis data to Google Sheets with proper formatting
-            - Create and manage multiple ticker income statements in a single sheet
-            - Read and analyze existing Google Sheets data
-            - Search across all accessible sheets for specific content
-            - Get comprehensive summaries of sheet structure and data
-            - Save datasets from Google Sheets for reuse across documents
-            - Manage structured data with field names and periods
+            - Create and manage Google Sheets with proper formatting
+            - Import income statement data for multiple tickers
+            - Run benchmarking analyses across companies
+            - Compute financial ratios with flexible configurations
+            - Search and list accessible sheets
+            - Organize files in Google Drive folders
 
             Google Docs Integration:
             - Create professional financial reports as Google Docs
             - Read and extract content from existing Google Docs
             - Update Google Docs with new analysis or findings
             - Format reports with proper structure and metadata
-            - Insert and refresh datapoints from datasets in Google Docs
-            - Manage dynamic content with dataset placeholders
-
-            Financial Data Analysis:
-            - Read and analyze financial data from existing Google Sheets
-            - Format financial data with proper number formatting
-            - Create benchmarking analyses across multiple companies
-            - Generate insights from financial data in sheets
-
-            Dataset Management:
-            - Save datasets from Google Sheets for consistent data access
-            - Insert and refresh datapoints in documents for dynamic reporting
-            - Manage structured data with field names and periods
-            - Create reusable data sources for financial analysis
 
             Collaboration Features:
             - Share sheets and docs with team members
@@ -85,20 +106,31 @@ class FinanceAnalystAgent:
             - Provide URLs for easy access to created documents
 
             Key Objectives:
-            - Read and analyze financial data from existing Google Sheets
-            - Save financial analysis data to Google Sheets with proper formatting
-            - Create and manage multiple ticker income statements efficiently
+            - Identify and analyze important financial metrics automatically
+            - Generate insightful commentary with trends and statistics
+            - Create visual charts for better data understanding
             - Provide clear, actionable insights from sheet data
             - Create professional, well-formatted financial reports
             - Enable collaborative financial analysis workflows
             - Maintain data integrity and proper formatting
-            - Save and manage datasets for consistent data access
-            - Insert and refresh datapoints in documents for dynamic reporting
             
             Important Instructions:
             - When using get_income_stmt_to_sheet for multiple tickers, always pass ticker as a list: ticker=['TICKER1', 'TICKER2']
             - Do not pass tickers as a comma-separated string
             - This ensures separate worksheets are created for each ticker
+            
+            Sheet Analysis Workflow:
+            - Use read_worksheet for single worksheet analysis
+            - Use read_all_worksheets for comprehensive spreadsheet analysis
+            - Use analyze_dataframe to automatically identify metrics, generate commentary, and create charts
+            - Workflow: Header Identification → Data Extraction → Metric Identification → Commentary → Charts
+            
+            Document Creation Instructions:
+            - When creating Google Docs with analysis results, ALWAYS use the detailed individual commentaries from the analysis
+            - The analyze_dataframe function provides detailed commentary for each metric with specific trends, statistics, and insights
+            - DO NOT generate generic summaries - use the actual detailed commentaries provided in the analysis results
+            - Include the specific commentary for each important metric identified in the analysis
+            - The detailed commentaries include: total values, averages, ranges, trends, average changes, and insights for each metric
             
             Financial Ratio Analysis:
             - Use compute_financial_ratios to create flexible ratio comparisons across all tickers
@@ -108,15 +140,8 @@ class FinanceAnalystAgent:
             - Output formats: 'percentage' for margins, 'decimal' for ratios, 'ratio' for fraction display
             - All formulas are traceable back to source data for auditability
 
-            Dataset Management:
-            - Use save_dataset_from_sheet to create reusable datasets from Google Sheets
-            - Use insert_datapoint_into_doc to add dynamic data to Google Docs
-            - Use refresh_datapoints_in_doc to update all datapoints in a document
-            - Datasets are stored locally and can be reused across multiple documents
-            - Use placeholder format "{{dataset.field.period}}" for datapoints
-
             Performance Indicators:
-            Success is measured by the quality and accessibility of financial data management, the clarity of insights provided from sheet analysis, and the professional presentation of financial reports. The agent should enable seamless collaboration and provide valuable financial insights through Google Workspace tools.
+            Success is measured by the quality of structured financial analysis, the clarity of insights provided from automated metric identification, the usefulness of generated commentary and charts, and the professional presentation of financial reports. The agent should provide valuable financial insights through automated analysis workflows and enable seamless collaboration through Google Workspace tools.
 
             Reply TERMINATE when the task is completed successfully.
             """
@@ -147,176 +172,15 @@ class FinanceAnalystAgent:
     def _register_toolkits(agent: autogen.AssistantAgent, user_proxy: autogen.UserProxyAgent):
         """Register all toolkit functions with the agent"""
         
-        # Workspace utilities
-        autogen.register_function(
-            WorkspaceUtils.create_google_doc,
-            caller=agent,
-            executor=user_proxy,
-            name="create_google_doc",
-            description="Create a new Google Doc with specified title and content"
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.read_google_doc,
-            caller=agent,
-            executor=user_proxy,
-            name="read_google_doc",
-            description="Read content from a Google Doc"
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.update_google_doc,
-            caller=agent,
-            executor=user_proxy,
-            name="update_google_doc",
-            description="Update a Google Doc with new content"
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.update_doc_variables,
-            caller=agent,
-            executor=user_proxy,
-            name="update_doc_variables",
-            description="Update variables in a Google Doc by replacing placeholders"
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.list_my_sheets,
-            caller=agent,
-            executor=user_proxy,
-            name="list_my_sheets",
-            description="List Google Sheets accessible to the user"
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.read_worksheet,
-            caller=agent,
-            name="read_worksheet",
-            description="Read data from a specific worksheet in a Google Sheet",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.read_all_worksheets,
-            caller=agent,
-            name="read_all_worksheets",
-            description="Read all worksheets from a Google Sheet and return as DataFrames",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.analyze_dataframes,
-            caller=agent,
-            name="analyze_dataframes",
-            description="Analyze DataFrames from worksheet data",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.suggest_chart_columns,
-            caller=agent,
-            name="suggest_chart_columns",
-            description="Suggest chart columns based on a target metric",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.create_chart,
-            caller=agent,
-            name="create_chart",
-            description="Create a chart from Google Sheets data",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.export_sheet_as_csv,
-            caller=agent,
-            name="export_sheet_as_csv",
-            description="Export a Google Sheet worksheet as CSV",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            WorkspaceUtils.search_sheets_by_content,
-            caller=agent,
-            name="search_sheets_by_content",
-            description="Search Google Sheets by content",
-            executor=user_proxy
-        )
-        
-        # Spreadsheet utilities
-        autogen.register_function(
-            SpreadsheetUtils.create_empty_sheet,
-            caller=agent,
-            name="create_empty_sheet",
-            description="Create a new empty Google Sheet",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            SpreadsheetUtils.get_income_stmt_to_sheet,
-            caller=agent,
-            name="get_income_stmt_to_sheet",
-            description="Get income statement data for multiple tickers and save to Google Sheets",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            SpreadsheetUtils.run_benchmarking,
-            caller=agent,
-            name="run_benchmarking",
-            description="Add a benchmarking worksheet to an existing Google Sheet",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            SpreadsheetUtils.compute_financial_ratios,
-            caller=agent,
-            name="compute_financial_ratios",
-            description="Compute financial ratios for all companies in a Google Sheet",
-            executor=user_proxy
-        )
-        
-        # Dataset management utilities
-        autogen.register_function(
-            DatasetManager.save_dataset_from_sheet,
-            caller=agent,
-            name="save_dataset_from_sheet",
-            description="Save a dataset from a Google Sheet",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            DatasetManager.insert_datapoint_into_doc,
-            caller=agent,
-            name="insert_datapoint_into_doc",
-            description="Insert a datapoint into a Google Doc using a placeholder",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            DatasetManager.refresh_datapoints_in_doc,
-            caller=agent,
-            name="refresh_datapoints_in_doc",
-            description="Refresh all datapoints in a Google Doc by replacing placeholders with current values",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            DatasetManager.list_datasets,
-            caller=agent,
-            name="list_datasets",
-            description="List all available datasets",
-            executor=user_proxy
-        )
-        
-        autogen.register_function(
-            DatasetManager.get_datapoint,
-            caller=agent,
-            name="get_datapoint",
-            description="Get a specific datapoint value",
-            executor=user_proxy
-        )
+        # Register all tools from the class-level list
+        for func, name, description in FinanceAnalystAgent.TOOLS:
+            autogen.register_function(
+                func,
+                caller=agent,
+                executor=user_proxy,
+                name=name,
+                description=description
+            )
     
     @staticmethod
     def create_user_proxy(

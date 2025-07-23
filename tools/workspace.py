@@ -18,6 +18,8 @@ from googleapiclient.errors import HttpError
 import pickle
 from datetime import datetime
 
+
+
 # OAuth2 scopes for Google Workspace
 SCOPES = [
     'https://www.googleapis.com/auth/drive',
@@ -189,6 +191,149 @@ class WorkspaceUtils:
             
         except HttpError as error:
             return f"Error creating Google Doc: {error}"
+    
+    @staticmethod
+    @init_google_workspace
+    def create_google_doc_with_images(
+        title: Annotated[str, "title of the Google Doc"],
+        content: Annotated[str, "content to add to the document"],
+        image_paths: Annotated[List[str], "list of image file paths to insert"] = None,
+        folder_id: Annotated[Optional[str], "Google Drive folder ID where to create the doc"] = None
+    ) -> str:
+        """
+        Create a new Google Doc with the specified title, content, and embedded images.
+        
+        Args:
+            title: Title for the Google Doc
+            content: Content to add to the document (plain text or markdown)
+            image_paths: List of image file paths to insert into the document
+            folder_id: Optional Google Drive folder ID
+            
+        Returns:
+            URL of the created Google Doc
+        """
+        
+        try:
+            # Create the document
+            document = {
+                'title': title
+            }
+            
+            doc = docs_service.documents().create(body=document).execute()
+            document_id = doc.get('documentId')
+            
+            # Prepare batch update requests
+            requests = []
+            current_index = 1
+            
+            # Insert content first
+            if content:
+                requests.append({
+                    'insertText': {
+                        'location': {
+                            'index': current_index
+                        },
+                        'text': content
+                    }
+                })
+                current_index += len(content)
+            
+            # Insert images if provided
+            if image_paths:
+                for image_path in image_paths:
+                    if os.path.exists(image_path):
+                        # Upload image to Drive first
+                        file_metadata = {
+                            'name': os.path.basename(image_path),
+                            'parents': [folder_id] if folder_id else [],
+                            'role': 'reader',
+                            'type': 'anyone'
+                        }
+                        
+                        media = drive_service.files().create(
+                            body=file_metadata,
+                            media_body=image_path,
+                            fields='id'
+                        ).execute()
+                        
+                        image_id = media.get('id')
+                        
+                        # Make the image publicly accessible
+                        drive_service.permissions().create(
+                            fileId=image_id,
+                            body={
+                                'role': 'reader',
+                                'type': 'anyone'
+                            }
+                        ).execute()
+                        
+                        # Insert image into document
+                        requests.append({
+                            'insertText': {
+                                'location': {
+                                    'index': current_index
+                                },
+                                'text': '\n'
+                            }
+                        })
+                        current_index += 1
+                        
+                        requests.append({
+                            'insertInlineImage': {
+                                'location': {
+                                    'index': current_index
+                                },
+                                'uri': f'https://drive.google.com/uc?id={image_id}',
+                                'objectSize': {
+                                    'height': {
+                                        'magnitude': 300,
+                                        'unit': 'PT'
+                                    },
+                                    'width': {
+                                        'magnitude': 400,
+                                        'unit': 'PT'
+                                    }
+                                }
+                            }
+                        })
+                        current_index += 1
+                        
+                        requests.append({
+                            'insertText': {
+                                'location': {
+                                    'index': current_index
+                                },
+                                'text': '\n'
+                            }
+                        })
+                        current_index += 1
+            
+            # Execute batch update
+            if requests:
+                docs_service.documents().batchUpdate(
+                    documentId=document_id,
+                    body={'requests': requests}
+                ).execute()
+            
+            # Move to folder if specified
+            if folder_id:
+                file = drive_service.files().get(fileId=document_id, fields='parents').execute()
+                previous_parents = ",".join(file.get('parents', []))
+                
+                drive_service.files().update(
+                    fileId=document_id,
+                    addParents=folder_id,
+                    removeParents=previous_parents,
+                    fields='id, parents'
+                ).execute()
+            
+            doc_url = f"https://docs.google.com/document/d/{document_id}"
+            return f"Google Doc created with images: {doc_url}"
+            
+        except HttpError as error:
+            return f"Error creating Google Doc with images: {error}"
+        except Exception as e:
+            return f"Error creating Google Doc with images: {str(e)}"
     
     @staticmethod
     @init_google_workspace
@@ -389,183 +534,7 @@ class WorkspaceUtils:
         except Exception as e:
             return f"Error listing Google Sheets: {e}"
     
-    @staticmethod
-    @init_google_workspace
-    def read_worksheet(
-        sheet_name: Annotated[str, "name of the Google Sheet"],
-        worksheet_name: Annotated[str, "name of the worksheet (optional)"] = None
-    ) -> str:
-        """
-        Read data from a specific worksheet in a Google Sheet.
-        
-        Args:
-            sheet_name: Name of the Google Sheet
-            worksheet_name: Optional specific worksheet name (defaults to first worksheet)
-            
-        Returns:
-            Formatted data from the worksheet
-        """
-        
-        try:
-            # Open the sheet
-            sheet = gc.open(sheet_name)
-            print(f"✅ Successfully opened sheet: {sheet_name}")
-            
-            # Get worksheet
-            if worksheet_name:
-                worksheet = sheet.worksheet(worksheet_name)
-                print(f"✅ Successfully opened worksheet: {worksheet_name}")
-            else:
-                worksheet = sheet.get_worksheet(0)
-                print(f"✅ Successfully opened first worksheet: {worksheet.title}")
-            
-            if not worksheet:
-                return f"No worksheet found in {sheet_name}"
-            
-            # Get all values
-            all_values = worksheet.get_all_values()
-            print(f"✅ Successfully retrieved {len(all_values)} rows of data")
-            
-            if not all_values:
-                return f"No data found in {sheet_name}"
-            
-            # Convert to pandas DataFrame
-            headers = all_values[0]
-            data_rows = all_values[1:] if len(all_values) > 1 else []
-            
-            df = pd.DataFrame(data_rows, columns=headers)
-            
-            # Convert numeric columns where possible
-            for col in df.columns:
-                try:
-                    df[col] = pd.to_numeric(df[col].replace('', pd.NA), errors='ignore')
-                except:
-                    pass
-            
-            print(f"✅ Successfully created DataFrame with shape: {df.shape}")
-            print(f"✅ DataFrame columns: {list(df.columns)}")
-            
-            # Return DataFrame info and first few rows as string
-            result = f"DataFrame from {sheet_name}:\n"
-            result += f"Shape: {df.shape}\n"
-            result += f"Columns: {list(df.columns)}\n\n"
-            result += "First 10 rows:\n"
-            result += df.head(10).to_string(index=False)
-            
-            if len(df) > 10:
-                result += f"\n\n... and {len(df) - 10} more rows"
-            
-            return result
-            
-        except Exception as e:
-            return f"Error reading sheet data: {e}"
-    
-    @staticmethod
-    @init_google_workspace
-    def read_all_worksheets(
-        sheet_name: Annotated[str, "name of the Google Sheet"]
-    ) -> str:
-        """
-        Read all worksheets from a Google Sheet and return as DataFrames.
-        
-        Args:
-            sheet_name: Name of the Google Sheet
-            
-        Returns:
-            Analysis of all worksheets
-        """
-        
-        try:
-            import pandas as pd
-            
-            # Open the sheet
-            sheet = gc.open(sheet_name)
-            print(f"✅ Successfully opened sheet: {sheet_name}")
-            
-            # Get all worksheets
-            worksheets = sheet.worksheets()
-            print(f"✅ Found {len(worksheets)} worksheets in the sheet")
-            
-            if not worksheets:
-                return []
-            
-            # Extract each worksheet as DataFrame
-            worksheet_data = []
-            
-            for worksheet in worksheets:
-                try:
-                    # Get worksheet data
-                    all_values = worksheet.get_all_values()
-                    
-                    if not all_values:
-                        # Empty worksheet
-                        worksheet_data.append({
-                            "worksheet_name": worksheet.title,
-                            "dataframe": pd.DataFrame(),
-                            "shape": (0, 0),
-                            "columns": [],
-                            "status": "empty"
-                        })
-                        continue
-                    
-                    # Create DataFrame
-                    headers = all_values[0]
-                    data_rows = all_values[1:] if len(all_values) > 1 else []
-                    
-                    df = pd.DataFrame(data_rows, columns=headers)
-                    
-                    # Convert numeric columns where possible
-                    for col in df.columns:
-                        try:
-                            df[col] = pd.to_numeric(df[col].replace('', pd.NA), errors='ignore')
-                        except:
-                            pass
-                    
-                    worksheet_data.append({
-                        "worksheet_name": worksheet.title,
-                        "dataframe": df,
-                        "shape": df.shape,
-                        "columns": list(df.columns),
-                        "status": "success"
-                    })
-                    
-                except Exception as e:
-                    worksheet_data.append({
-                        "worksheet_name": worksheet.title,
-                        "dataframe": pd.DataFrame(),
-                        "shape": (0, 0),
-                        "columns": [],
-                        "status": f"error: {str(e)}"
-                    })
-            
-            # Create analysis report
-            result = f"📊 Analysis of Google Sheet: {sheet_name}\n"
-            result += "=" * 60 + "\n\n"
-            
-            successful = sum(1 for ws in worksheet_data if ws['status'] == 'success')
-            empty = sum(1 for ws in worksheet_data if ws['status'] == 'empty')
-            errors = sum(1 for ws in worksheet_data if ws['status'].startswith('error'))
-            
-            result += f"📋 Summary:\n"
-            result += f"   Total worksheets: {len(worksheets)}\n"
-            result += f"   Successful extractions: {successful}\n"
-            result += f"   Empty worksheets: {empty}\n"
-            result += f"   Errors: {errors}\n\n"
-            
-            result += "📄 Worksheet Details:\n"
-            for ws_data in worksheet_data:
-                result += f"   📊 {ws_data['worksheet_name']}:\n"
-                result += f"      Status: {ws_data['status']}\n"
-                result += f"      Shape: {ws_data['shape']}\n"
-                result += f"      Columns: {len(ws_data['columns'])}\n"
-                if ws_data['columns']:
-                    result += f"      Sample columns: {ws_data['columns'][:5]}{'...' if len(ws_data['columns']) > 5 else ''}\n"
-                result += "\n"
-            
-            return result
-            
-        except Exception as e:
-            return f"Error analyzing sheet: {e}"
+
     
     @staticmethod
     @init_google_workspace
@@ -628,211 +597,11 @@ class WorkspaceUtils:
         except Exception as e:
             return f"Error analyzing DataFrames: {e}"
     
-    @staticmethod
-    @init_google_workspace
-    def suggest_chart_columns(
-        sheet_name: Annotated[str, "name of the Google Sheet"],
-        target_metric: Annotated[str, "metric to look for (e.g., 'revenue', 'customers')"]
-    ) -> str:
-        """
-        Suggest chart columns based on a target metric.
-        
-        Args:
-            sheet_name: Name of the Google Sheet
-            target_metric: Metric to look for
-            
-        Returns:
-            Suggested columns for charting
-        """
-        
-        try:
-            # Get all worksheets
-            sheet = gc.open(sheet_name)
-            worksheets = sheet.worksheets()
-            
-            suggestions = []
-            
-            for worksheet in worksheets:
-                try:
-                    all_values = worksheet.get_all_values()
-                    if not all_values:
-                        continue
-                    
-                    headers = all_values[0]
-                    
-                    # Look for columns containing the target metric
-                    matching_cols = [col for col in headers if target_metric.lower() in col.lower()]
-                    
-                    if matching_cols:
-                        suggestions.append({
-                            'worksheet': worksheet.title,
-                            'columns': matching_cols,
-                            'all_columns': headers
-                        })
-                        
-                except Exception as e:
-                    continue
-            
-            if not suggestions:
-                return f"No columns found matching '{target_metric}' in any worksheet."
-            
-            result = f"📊 Chart Column Suggestions for '{target_metric}':\n"
-            result += "=" * 50 + "\n\n"
-            
-            for suggestion in suggestions:
-                result += f"📋 Worksheet: {suggestion['worksheet']}\n"
-                result += f"   Matching columns: {suggestion['columns']}\n"
-                result += f"   All columns: {suggestion['all_columns'][:10]}{'...' if len(suggestion['all_columns']) > 10 else ''}\n\n"
-            
-            return result
-            
-        except Exception as e:
-            return f"Error suggesting chart columns: {e}"
+
     
-    @staticmethod
-    @init_google_workspace
-    def create_chart(
-        sheet_name: Annotated[str, "name of the Google Sheet"],
-        worksheet_name: Annotated[str, "name of the worksheet"],
-        chart_type: Annotated[str, "type of chart (line, bar, pie, etc.)"],
-        x_column: Annotated[str, "column name for x-axis"],
-        y_column: Annotated[str, "column name for y-axis"],
-        chart_title: Annotated[str, "title for the chart"]
-    ) -> str:
-        """
-        Create a chart from Google Sheets data.
-        
-        Args:
-            sheet_name: Name of the Google Sheet
-            worksheet_name: Name of the worksheet
-            chart_type: Type of chart
-            x_column: Column name for x-axis
-            y_column: Column name for y-axis
-            chart_title: Title for the chart
-            
-        Returns:
-            Success message with chart details
-        """
-        
-        try:
-            # Get worksheet data
-            sheet = gc.open(sheet_name)
-            worksheet = sheet.worksheet(worksheet_name)
-            all_values = worksheet.get_all_values()
-            
-            if not all_values:
-                return f"No data found in worksheet {worksheet_name}"
-            
-            headers = all_values[0]
-            data_rows = all_values[1:]
-            
-            # Find column indices
-            try:
-                x_col_idx = headers.index(x_column)
-                y_col_idx = headers.index(y_column)
-            except ValueError:
-                return f"Column not found. Available columns: {headers}"
-            
-            # Create DataFrame
-            df = pd.DataFrame(data_rows, columns=headers)
-            
-            # Convert to numeric
-            try:
-                df[x_column] = pd.to_numeric(df[x_column], errors='coerce')
-                df[y_column] = pd.to_numeric(df[y_column], errors='coerce')
-            except:
-                pass
-            
-            # Remove NaN values
-            df = df.dropna(subset=[x_column, y_column])
-            
-            if df.empty:
-                return "No valid data points found for charting"
-            
-            # Create chart using matplotlib
-            import matplotlib.pyplot as plt
-            
-            plt.figure(figsize=(10, 6))
-            
-            if chart_type.lower() == 'line':
-                plt.plot(df[x_column], df[y_column], marker='o')
-            elif chart_type.lower() == 'bar':
-                plt.bar(df[x_column], df[y_column])
-            elif chart_type.lower() == 'scatter':
-                plt.scatter(df[x_column], df[y_column])
-            else:
-                plt.plot(df[x_column], df[y_column], marker='o')  # Default to line
-            
-            plt.title(chart_title)
-            plt.xlabel(x_column)
-            plt.ylabel(y_column)
-            plt.xticks(rotation=45)
-            plt.tight_layout()
-            
-            # Save chart
-            chart_filename = f"{sheet_name}_{worksheet_name}_{chart_type}_chart.png"
-            plt.savefig(chart_filename, dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            return f"✅ Chart created successfully!\n📊 Chart saved as: {chart_filename}\n📈 Type: {chart_type}\n📋 Data points: {len(df)}"
-            
-        except Exception as e:
-            return f"Error creating chart: {e}"
+
     
-    @staticmethod
-    @init_google_workspace
-    def export_sheet_as_csv(
-        sheet_name: Annotated[str, "name of the Google Sheet"],
-        worksheet_name: Annotated[str, "name of the worksheet (optional)"] = None,
-        output_filename: Annotated[str, "name for the CSV file"] = None
-    ) -> str:
-        """
-        Export a Google Sheet worksheet as CSV.
-        
-        Args:
-            sheet_name: Name of the Google Sheet
-            worksheet_name: Optional specific worksheet name
-            output_filename: Name for the CSV file
-            
-        Returns:
-            Success message with file details
-        """
-        
-        try:
-            # Open the sheet
-            sheet = gc.open(sheet_name)
-            
-            # Get worksheet
-            if worksheet_name:
-                worksheet = sheet.worksheet(worksheet_name)
-            else:
-                worksheet = sheet.get_worksheet(0)
-            
-            if not worksheet:
-                return f"No worksheet found in {sheet_name}"
-            
-            # Get all values
-            all_values = worksheet.get_all_values()
-            
-            if not all_values:
-                return f"No data found in {sheet_name}"
-            
-            # Create DataFrame
-            headers = all_values[0]
-            data_rows = all_values[1:] if len(all_values) > 1 else []
-            df = pd.DataFrame(data_rows, columns=headers)
-            
-            # Generate filename if not provided
-            if not output_filename:
-                output_filename = f"{sheet_name}_{worksheet.title}.csv"
-            
-            # Export to CSV
-            df.to_csv(output_filename, index=False)
-            
-            return f"✅ CSV exported successfully!\n📄 File: {output_filename}\n📊 Rows: {len(df)}\n📋 Columns: {len(df.columns)}"
-            
-        except Exception as e:
-            return f"Error exporting CSV: {e}"
+
     
     @staticmethod
     @init_google_workspace
@@ -876,4 +645,270 @@ class WorkspaceUtils:
             return result
             
         except Exception as e:
-            return f"Error searching sheets: {e}" 
+            return f"Error searching sheets: {e}"
+    
+
+    
+    # ============================================================================
+    # LOCAL FILE MANAGEMENT FUNCTIONS
+    # ============================================================================
+    
+    @staticmethod
+    def create_notes(
+        title: Annotated[str, "title for the notes file"] = "Agent Notes"
+    ) -> str:
+        """
+        Create a notes.md file in the drive folder for the agent to store information
+        
+        Args:
+            title: Title for the notes file
+            
+        Returns:
+            Success message with file details
+        """
+        
+        try:
+            # Ensure drive folder exists
+            drive_path = os.path.join(os.getcwd(), 'drive')
+            os.makedirs(drive_path, exist_ok=True)
+            
+            # Create notes.md file path
+            notes_file_path = os.path.join(drive_path, 'notes.md')
+            
+            # Check if file already exists
+            if os.path.exists(notes_file_path):
+                return f"✅ Notes file already exists at: {notes_file_path}"
+            
+            # Create the notes file with initial content
+            initial_content = f"""# {title}
+
+Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Notes
+
+<!-- Add your notes here -->
+
+## Analysis History
+
+<!-- Track analysis sessions and findings -->
+
+## Important Findings
+
+<!-- Key insights and observations -->
+
+## To-Do Items
+
+<!-- Tasks and follow-ups -->
+
+---
+*This file is automatically managed by the Finance AI Analyst agent.*
+"""
+            
+            with open(notes_file_path, 'w', encoding='utf-8') as f:
+                f.write(initial_content)
+            
+            return f"✅ Notes file created successfully!\n📄 File: {notes_file_path}\n📝 Title: {title}"
+            
+        except Exception as e:
+            return f"❌ Error creating notes file: {str(e)}"
+    
+    @staticmethod
+    def read_notes() -> str:
+        """
+        Read the contents of notes.md file
+        
+        Returns:
+            Contents of the notes file or error message
+        """
+        
+        try:
+            # Get notes file path
+            drive_path = os.path.join(os.getcwd(), 'drive')
+            notes_file_path = os.path.join(drive_path, 'notes.md')
+            
+            # Check if file exists
+            if not os.path.exists(notes_file_path):
+                return "❌ Notes file does not exist. Use create_notes_file() to create it first."
+            
+            # Read the file
+            with open(notes_file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            return f"✅ Notes file read successfully!\n\n📄 Content:\n{content}"
+            
+        except Exception as e:
+            return f"❌ Error reading notes file: {str(e)}"
+    
+    @staticmethod
+    def update_notes(
+        section: Annotated[str, "section to write to (e.g., 'Notes', 'Analysis History', 'Important Findings', 'To-Do Items')"],
+        content: Annotated[str, "content to add to the section"]
+    ) -> str:
+        """
+        Write content to a specific section of the notes.md file
+        
+        Args:
+            section: Section name to write to
+            content: Content to add
+            
+        Returns:
+            Success message or error
+        """
+        
+        try:
+            # Get notes file path
+            drive_path = os.path.join(os.getcwd(), 'drive')
+            notes_file_path = os.path.join(drive_path, 'notes.md')
+            
+            # Check if file exists
+            if not os.path.exists(notes_file_path):
+                return "❌ Notes file does not exist. Use create_notes_file() to create it first."
+            
+            # Read current content
+            with open(notes_file_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Find the section and add content
+            section_found = False
+            new_lines = []
+            
+            for line in lines:
+                new_lines.append(line)
+                
+                # Check if this is the target section
+                if line.strip().startswith(f"## {section}"):
+                    section_found = True
+                    # Add timestamp and content
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    new_lines.append(f"\n### {timestamp}\n")
+                    new_lines.append(f"{content}\n\n")
+            
+            if not section_found:
+                return f"❌ Section '{section}' not found in notes file. Available sections: Notes, Analysis History, Important Findings, To-Do Items"
+            
+            # Write back to file
+            with open(notes_file_path, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+            
+            return f"✅ Content written to '{section}' section successfully!\n📝 Added: {content[:100]}{'...' if len(content) > 100 else ''}"
+            
+        except Exception as e:
+            return f"❌ Error writing to notes: {str(e)}"
+    
+    @staticmethod
+    def list_drive_files() -> str:
+        """
+        List all files in the drive folder
+        
+        Returns:
+            List of files in the drive folder
+        """
+        
+        try:
+            # Get drive folder path
+            drive_path = os.path.join(os.getcwd(), 'drive')
+            
+            # Check if drive folder exists
+            if not os.path.exists(drive_path):
+                return "❌ Drive folder does not exist."
+            
+            # List files
+            files = os.listdir(drive_path)
+            
+            if not files:
+                return "📁 Drive folder is empty."
+            
+            result = "📁 Files in drive folder:\n"
+            for file in files:
+                file_path = os.path.join(drive_path, file)
+                if os.path.isfile(file_path):
+                    size = os.path.getsize(file_path)
+                    modified = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
+                    result += f"   📄 {file} ({size} bytes, modified: {modified})\n"
+                else:
+                    result += f"   📁 {file}/\n"
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error listing drive files: {str(e)}"
+    
+    @staticmethod
+    def save_dataframe_to_drive(
+        dataframe_name: Annotated[str, "name for the saved dataframe file"],
+        dataframe_data: Annotated[str, "dataframe data in CSV format or JSON format"],
+        file_format: Annotated[str, "format to save as: 'csv' or 'json'"] = "csv"
+    ) -> str:
+        """
+        Save a dataframe to the drive folder
+        
+        Args:
+            dataframe_name: Name for the saved dataframe file
+            dataframe_data: Dataframe data in CSV or JSON format
+            file_format: Format to save as (csv or json)
+            
+        Returns:
+            Success message with file details
+        """
+        
+        try:
+            import pandas as pd
+            import json
+            
+            # Ensure drive folder exists
+            drive_path = os.path.join(os.getcwd(), 'drive')
+            os.makedirs(drive_path, exist_ok=True)
+            
+            # Generate filename
+            if not dataframe_name.endswith(f'.{file_format}'):
+                dataframe_name = f"{dataframe_name}.{file_format}"
+            
+            file_path = os.path.join(drive_path, dataframe_name)
+            
+            # Check if file already exists
+            if os.path.exists(file_path):
+                return f"⚠️ File already exists: {file_path}"
+            
+            # Parse and save the dataframe
+            if file_format.lower() == 'csv':
+                # For CSV, assume the data is already in CSV format
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(dataframe_data)
+                
+                # Try to read it back to get info
+                try:
+                    df = pd.read_csv(file_path)
+                    rows, cols = df.shape
+                    result = f"✅ DataFrame saved as CSV successfully!\n"
+                    result += f"📄 File: {file_path}\n"
+                    result += f"📊 Shape: {rows} rows, {cols} columns\n"
+                    result += f"📋 Columns: {list(df.columns)}\n"
+                except Exception as e:
+                    result = f"✅ DataFrame saved as CSV successfully!\n"
+                    result += f"📄 File: {file_path}\n"
+                    result += f"⚠️ Could not read back for details: {str(e)}"
+                
+            elif file_format.lower() == 'json':
+                # For JSON, try to parse and save
+                try:
+                    if isinstance(dataframe_data, str):
+                        data = json.loads(dataframe_data)
+                    else:
+                        data = dataframe_data
+                    
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                    
+                    result = f"✅ DataFrame saved as JSON successfully!\n"
+                    result += f"📄 File: {file_path}\n"
+                    result += f"📊 Data type: {type(data).__name__}\n"
+                    
+                except Exception as e:
+                    return f"❌ Error saving JSON: {str(e)}"
+            else:
+                return f"❌ Unsupported format: {file_format}. Use 'csv' or 'json'."
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error saving dataframe: {str(e)}" 

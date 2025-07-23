@@ -29,4 +29,7 @@ config.json
 # Google API credentials
 credentials.json
 token.json
-token.pickle 
+token.pickle
+
+# Agent local storage
+drive/

@@ -1,94 +1,91 @@
 # Finance AI Analyst
 
-An experimental finance AI analyst that works alongside you in Google Workspace to extract and analyze financial data.
+An intelligent finance AI analyst that works alongside you in Google Workspace to extract and analyze financial data.
 
 ## Features
 
-✔️ Connect to your Google Drive, read and create Google Sheets and Google Docs
-✔️ Pull public company financial data from Yahoo Finance into Google Sheets
-✔️ Analyze a spreadsheet and save commentary to Google Docs
-🚧 Run benchmarking analysis across companies with traceable formulas
-🚧 Analyse an income statement, create commentary and charts to analyze trends
-💡 Pull private financial data from BigQuery or your data warehouse into Google Sheets
+✔️ **Google Workspace Integration** - Connect to Drive, Sheets, and Docs
+✔️ **Financial Data Analysis** - Pull data from Yahoo Finance
+✔️ **Automated Reporting** - Generate professional financial reports
+✔️ **Benchmarking & Ratios** - Compare companies with traceable formulas
+✔️ **Intelligent Agent** - AutoGen-based Finance Analyst with comprehensive tools
+✔️ **Programmatic Access** - Easy integration via Python API
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.8 or higher
+- OpenAI API key
+- Google Cloud project with OAuth2 credentials
+
+### Quick Setup
+
 ```bash
-pip install finance-ai-analyst
+# Clone the repository
+git clone <repository-url>
+cd finance-ai-analyst
+
+# Install Python dependencies
+pip install -r requirements.txt
 ```
 
 ## Quick Start
 
 ### 1. Set up Configuration
 
-You can set up your API keys and configuration in two ways:
+#### Step 1: Copy the configuration template
 
-#### Option A: Using the OAuth2 Setup Script (Recommended)
-
-```bash
-python setup_oauth.py
-```
-
-This will guide you through setting up your OAuth2 credentials interactively.
-
-#### Option B: Manual Configuration
-
-1. Copy the example configuration file:
 ```bash
 cp config.json.example config.json
 ```
 
-2. Edit `config.json` with your API keys:
+#### Step 2: Add your OpenAI API key
+
+Edit `config.json` and replace `"your-openai-api-key-here"` with your actual OpenAI API key:
+
 ```json
 {
-  "OPENAI_API_KEY": "your-openai-api-key-here",
-  "GOOGLE_OAUTH_CREDENTIALS_JSON": {
-    "installed": {
-      "client_id": "your-client-id.apps.googleusercontent.com",
-      "project_id": "your-project-id",
-      "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-      "token_uri": "https://oauth2.googleapis.com/token",
-      "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-      "client_secret": "your-client-secret",
-      "redirect_uris": ["http://localhost"]
-    }
-  }
+  "OPENAI_API_KEY": "sk-your-actual-openai-api-key-here",
+  ...
 }
 ```
 
-3. Set up Google OAuth2 credentials:
-   - Go to the [Google Cloud Console](https://console.cloud.google.com/)
+#### Step 3: Set up Google OAuth2 credentials
+
+1. **Go to Google Cloud Console:**
+   - Visit [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project or select an existing one
-   - Enable the Google Sheets API and Google Docs API
-   - Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client IDs"
+
+2. **Enable required APIs:**
+   - Go to "APIs & Services" → "Library"
+   - Search for and enable:
+     - Google Sheets API
+     - Google Docs API
+     - Google Drive API
+
+3. **Create OAuth2 credentials:**
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "OAuth 2.0 Client IDs"
    - Choose "Desktop application" as the application type
-   - Download the JSON file and copy its contents to your `config.json`
+   - Download the JSON file
 
-#### Option C: Environment Variables
-
-You can also set environment variables directly:
-
-```bash
-export OPENAI_API_KEY="your-openai-api-key"
-export GOOGLE_OAUTH_CREDENTIALS_JSON='{"installed":{"client_id":"your-client-id","project_id":"your-project-id","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_secret":"your-client-secret","redirect_uris":["http://localhost"]}}'
-```
+4. **Add credentials to config.json:**
+   - Replace the `GOOGLE_OAUTH_CREDENTIALS_JSON` section in your `config.json` with the contents of the downloaded JSON file
 
 ### 2. Basic Usage
 
 ```python
 import autogen
-from finance_ai_analyst import FinanceAnalystAgent
+from agents.finance_analyst import FinanceAnalystAgent
 from config import get_config
 
 # Load configuration
-config = get_config()  # Uses config.json or environment variables
-
-# Get LLM configuration
-llm_config = config.llm_config
+config = get_config("config.json")
 
 # Create the Finance Analyst agent
 finance_agent = FinanceAnalystAgent.create_agent(
-    llm_config=llm_config,
+    llm_config=config.llm_config,
     human_input_mode="NEVER"
 )
 
@@ -102,7 +99,155 @@ user_proxy.initiate_chat(
 )
 ```
 
-### 3. Advanced Usage with Datasets
+## Examples
+
+### Example 1: Analyze Income Statement
+
+```python
+# Analyze income statement in a Google Sheet
+task = """
+Analyze the income statement data in the Google Sheet named 'Sample Income Statement'.
+Please read the worksheet and provide insights about the financial performance.
+"""
+
+result = user_proxy.initiate_chat(
+    finance_agent,
+    message=task
+)
+```
+
+### Example 2: Get Income Statements
+
+```python
+# Get income statements for specific companies
+task = """
+Get income statement data for AAPL and GOOGL and save it to a new Google Sheet.
+Create separate worksheets for each company.
+"""
+
+result = user_proxy.initiate_chat(
+    finance_agent,
+    message=task
+)
+```
+
+### Example 3: Run Benchmarking
+
+```python
+# Run benchmarking analysis
+task = """
+Run a benchmarking analysis on the companies in my Google Sheet.
+Compare key financial metrics across all companies.
+"""
+
+result = user_proxy.initiate_chat(
+    finance_agent,
+    message=task
+)
+```
+
+### Agent Capabilities
+
+The Finance AI Analyst can:
+
+- 📊 **Analyze Google Sheets** - Read worksheets, identify important metrics, generate insights
+- 📈 **Fetch Financial Data** - Get income statements, balance sheets, cash flow data
+- 📝 **Create Reports** - Generate professional Google Docs with analysis
+- 🧮 **Calculate Ratios** - Compute profit margins, growth rates, efficiency metrics
+- 📊 **Run Benchmarking** - Compare companies across multiple financial metrics
+- 💾 **Manage Files** - Save analysis results, charts, and data to Google Drive
+- 📋 **Track Analysis** - Maintain notes and previous analysis results
+
+## Troubleshooting
+
+### Common Issues
+
+#### **Configuration Issues**
+- **Configuration errors**: Check that `config.json` exists and has valid credentials
+- **Agent initialization failed**: Verify OpenAI API key and Google OAuth credentials
+
+#### **Authentication Issues**
+- **Google OAuth errors**: Check that required APIs are enabled in Google Cloud Console
+- **Token expired**: Delete `token.pickle` and re-authenticate
+
+#### **Dependency Issues**
+- **Missing dependencies**: Run `pip install -r requirements.txt`
+- **Import errors**: Ensure all required packages are installed
+
+### Development
+
+#### **Extending Agent Capabilities**
+Add new tools to `agents/finance_analyst.py` and register them with the agent.
+
+## Advanced Usage
+
+### Programmatic Access
+
+For programmatic access without the web interface:
+
+```python
+import autogen
+from agents.finance_analyst import FinanceAnalystAgent
+from config import get_config
+
+# Load configuration
+config = get_config("config.json")
+
+# Create the Finance Analyst agent
+finance_agent = FinanceAnalystAgent.create_agent(
+    llm_config=config.llm_config,
+    human_input_mode="NEVER"
+)
+
+# Create a user proxy
+user_proxy = FinanceAnalystAgent.create_user_proxy()
+
+# Start a conversation
+user_proxy.initiate_chat(
+    finance_agent,
+    message="Create a Google Sheet with income statement data for AAPL, MSFT, and GOOGL for 2024."
+)
+```
+
+### API Integration
+
+You can also integrate the Finance AI Analyst into your own applications using the REST API:
+
+```python
+import requests
+
+# Send a chat message
+response = requests.post("http://localhost:8000/chat", json={
+    "message": "Analyze my Google Sheets"
+})
+
+print(response.json())
+```
+    message="Create a Google Sheet with income statement data for AAPL, MSFT, and GOOGL for 2024."
+)
+```
+
+### 3. Web Interface (Gradio)
+
+For a user-friendly web interface, you can use the Gradio app:
+
+```bash
+# Run the Gradio web interface
+python app.py
+```
+
+This will start a web server at `http://localhost:7860` where you can:
+
+- 💬 Chat with the Finance Analyst agent
+- 🚀 Use quick action buttons for common tasks
+- 📊 Analyze Google Sheets with one click
+- 📈 Get income statements for multiple companies
+- 📝 Create financial reports automatically
+- 🧮 Run benchmarking and ratio analysis
+
+The web interface provides an intuitive way to interact with all the agent's capabilities without writing code.
+
+### 4. Advanced Usage with Datasets
 
 ```python
 # Create a dataset from an existing Google Sheet
@@ -168,23 +313,19 @@ result = finance_agent.run(task)
 ## Package Structure
 
 ```
-finance_ai_analyst/
-├── __init__.py                 # Main package initialization
+finance-ai-analyst/
 ├── agents/                     # Agent implementations
 │   ├── __init__.py
 │   └── finance_analyst.py      # Finance Analyst agent
 ├── tools/                      # Utility tools
 │   ├── __init__.py
 │   ├── workspace.py           # Google Workspace utilities
-│   ├── spreadsheet.py         # Financial data management
-│   └── dataset_manager.py     # Dataset and datapoint management
-├── setup.py                   # Package setup configuration
-├── requirements.txt           # Dependencies
-├── README.md                  # Documentation
-├── LICENSE                    # MIT License
-├── .gitignore                 # Git ignore rules
-└── examples/
-    └── basic_usage.py         # Usage examples
+│   └── sheet.py               # Financial data management
+├── config.py                  # Configuration management
+├── config.json.example        # Configuration template
+├── requirements.txt           # Python dependencies
+├── README.md                  # Main documentation
+└── LICENSE                    # MIT License
 ```
 
 ## API Reference
@@ -212,7 +353,7 @@ Utilities for Google Docs and Google Sheets operations.
 - `read_worksheet()` - Read data from a worksheet
 - `create_chart()` - Create charts from sheet data
 
-#### SpreadsheetUtils
+#### SheetUtils
 
 Utilities for financial data management in Google Sheets.
 

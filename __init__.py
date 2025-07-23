@@ -12,8 +12,7 @@ Version: 1.0.0
 
 from agents.finance_analyst import FinanceAnalystAgent
 from tools.workspace import WorkspaceUtils
-from tools.spreadsheet import SpreadsheetUtils
-from tools.dataset_manager import DatasetManager
+from tools.sheet import SheetUtils
 
 __version__ = "1.0.0"
 __author__ = "Your Name"
@@ -22,6 +21,5 @@ __email__ = "your.email@example.com"
 __all__ = [
     "FinanceAnalystAgent",
     "WorkspaceUtils", 
-    "SpreadsheetUtils",
-    "DatasetManager"
+    "SheetUtils"
 ] 

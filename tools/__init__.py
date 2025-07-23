@@ -1,12 +1,11 @@
 """
-Tools package for Finance Workspace Agent
+Tools package for Finance AI Analyst
 
 Contains utility classes for Google Workspace operations, spreadsheet management,
-and dataset handling.
+and structured analysis.
 """
 
 from .workspace import WorkspaceUtils
-from .spreadsheet import SpreadsheetUtils
-from .dataset_manager import DatasetManager
+from .sheet import SheetUtils, SheetAnalyzer
 
-__all__ = ["WorkspaceUtils", "SpreadsheetUtils", "DatasetManager"] 
+__all__ = ["WorkspaceUtils", "SheetUtils", "SheetAnalyzer"] 
