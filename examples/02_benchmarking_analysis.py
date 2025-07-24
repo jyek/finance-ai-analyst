@@ -43,17 +43,27 @@ def main():
     # Get LLM configuration from config
     llm_config = config.llm_config
     
-    # Create a user proxy first
-    user_proxy = FinanceAnalystAgent.create_user_proxy()
+    # Create a code executor agent for tool execution
+    code_executor = FinanceAnalystAgent.create_code_executor_agent(
+        llm_config=llm_config
+    )
     
     # Create the Finance Analyst agent
     finance_agent = FinanceAnalystAgent.create_agent(
         llm_config=llm_config,
         human_input_mode="NEVER",
-        user_proxy=user_proxy
+        user_proxy=code_executor
     )
     
-    print("✅ Agent created successfully!")
+    # Create a user proxy for conversation
+    user_proxy = autogen.UserProxyAgent(
+        name="user",
+        human_input_mode="NEVER",
+        max_consecutive_auto_reply=2,
+        code_execution_config=False
+    )
+    
+    print("✅ Agents created successfully!")
     
     # Example: Benchmark tech companies
     print("\n📊 Example: Tech Companies Benchmarking")
@@ -72,8 +82,19 @@ def main():
     """
     
     print("Executing analysis...")
+    # Create a group chat where Finance_Analyst can talk to Code_Executor
+    groupchat = autogen.GroupChat(
+        agents=[user_proxy, finance_agent, code_executor],
+        messages=[],
+        max_round=50
+    )
+    manager = autogen.GroupChatManager(
+        groupchat=groupchat,
+        llm_config=llm_config
+    )
+    
     result = user_proxy.initiate_chat(
-        finance_agent,
+        manager,
         message=task
     )
     

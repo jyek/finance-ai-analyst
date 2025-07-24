@@ -183,27 +183,29 @@ class FinanceAnalystAgent:
             )
     
     @staticmethod
-    def create_user_proxy(
-        name: str = "User",
+    def create_code_executor_agent(
+        name: str = "Code_Executor",
+        llm_config: Dict[str, Any] = None,
         human_input_mode: str = "NEVER",
         max_consecutive_auto_reply: int = 5,
         **kwargs
     ) -> autogen.UserProxyAgent:
         """
-        Create a user proxy agent for the Finance Analyst.
+        Create a code executor agent for the Finance Analyst.
         
         Args:
-            name: Name for the user proxy
+            name: Name for the code executor
             human_input_mode: Human input mode
             max_consecutive_auto_reply: Maximum consecutive auto replies
             **kwargs: Additional arguments for UserProxyAgent
             
         Returns:
-            Configured user proxy agent
+            Configured code executor agent
         """
         
         return autogen.UserProxyAgent(
             name=name,
+            llm_config=llm_config,
             human_input_mode=human_input_mode,
             max_consecutive_auto_reply=max_consecutive_auto_reply,
             is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").strip().endswith("TERMINATE"),

@@ -24,17 +24,24 @@ def main():
         config = get_config("config.json")
         print("✅ Configuration loaded successfully")
         
-        # Create the Finance Analyst agent with direct tool execution
+        # Create a code executor agent for tool execution
+        print("🔧 Creating code executor agent...")
+        code_executor = FinanceAnalystAgent.create_code_executor_agent(
+            llm_config=config.llm_config
+        )
+        print("✅ Code executor agent created")
+        
+        # Create the Finance Analyst agent
         print("🧠 Initializing Finance Analyst agent...")
         finance_agent = FinanceAnalystAgent.create_agent(
             llm_config=config.llm_config,
             human_input_mode="NEVER",  # Run tools automatically without asking
             max_consecutive_auto_reply=10,  # Allow multiple auto-replies
-            code_execution_config={"use_docker": False}  # Enable code execution without Docker
+            user_proxy=code_executor  # Use code executor for tool execution
         )
         print("✅ Finance Analyst agent initialized")
         
-        # Create a simple user proxy for conversation only
+        # Create a user proxy for conversation
         print("👤 Creating user proxy for conversation...")
         user_proxy = autogen.UserProxyAgent(
             name="user",
@@ -43,6 +50,19 @@ def main():
             code_execution_config=False  # Disable code execution
         )
         print("✅ User proxy created")
+        
+        # Create a group chat where Finance_Analyst can talk to Code_Executor
+        print("🤝 Setting up group chat...")
+        groupchat = autogen.GroupChat(
+            agents=[user_proxy, finance_agent, code_executor],
+            messages=[],
+            max_round=50
+        )
+        manager = autogen.GroupChatManager(
+            groupchat=groupchat,
+            llm_config=config.llm_config
+        )
+        print("✅ Group chat configured")
         
         print("\n" + "=" * 50)
         print("🎯 Ready to chat! Type 'quit' or 'exit' to end the session.")
@@ -55,7 +75,7 @@ def main():
         
         # Start the chat with the Finance Analyst initiating
         finance_agent.initiate_chat(
-            user_proxy,
+            manager,
             message="Hello! I'm ready to help you with financial analysis. What would you like me to do?"
         )
         
