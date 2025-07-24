@@ -169,7 +169,7 @@ class FinanceAnalystAgent:
         return agent
     
     @staticmethod
-    def _register_toolkits(agent: autogen.AssistantAgent, user_proxy: autogen.UserProxyAgent):
+    def _register_toolkits(agent: autogen.AssistantAgent, user_proxy: autogen.UserProxyAgent = None):
         """Register all toolkit functions with the agent"""
         
         # Register all tools from the class-level list
@@ -209,4 +209,4 @@ class FinanceAnalystAgent:
             is_termination_msg=lambda x: x.get("content", "") and x.get("content", "").strip().endswith("TERMINATE"),
             code_execution_config={"use_docker": False},
             **kwargs
-        ) 
+        )
