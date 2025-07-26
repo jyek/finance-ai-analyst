@@ -79,18 +79,23 @@ def main():
        - Understand the time periods and financial metrics included
     
     2. Data Analysis:
-       - Analyze the monthly income statement data
+       - Analyze ALL rows with numeric data (not just "important" ones)
+       - Create charts for each row that has numeric data
+       - For summary rows (like "Total Revenue", "Total Expenses"), create stacked bar charts showing their component rows
        - Identify key revenue and expense categories
        - Calculate monthly trends and patterns
        - Identify any seasonal variations or trends
     
     3. Create Analysis:
        - Generate a summary of the income statement structure
-       - Create charts showing monthly trends
+       - Create charts showing monthly trends for ALL numeric rows
+       - Create stacked charts for summary rows showing their breakdown
        - Identify the main revenue drivers and cost centers
        - Calculate key financial ratios and metrics
     
-    4. Create a detailed analysis document with insights about the data
+    4. Create a local HTML report with embedded charts and commentary
+    
+    Use the analyze_dataframe function with create_local_report=True to create a professional HTML report with all charts and analysis saved locally.
     """
     
     print("Executing analysis...")

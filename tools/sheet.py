@@ -27,42 +27,55 @@ SCOPES = [
     'https://www.googleapis.com/auth/presentations'
 ]
 
+# Global variable to store the initialized client
+_gc_client = None
+_gc_initialized = False
+
 def init_google_sheets(func):
-    """Decorator to initialize Google Sheets client"""
+    """Decorator to initialize Google Sheets client (singleton pattern)"""
     @wraps(func)
     def wrapper(*args, **kwargs):
+        global _gc_client, _gc_initialized
+        
+        # Only initialize once
+        if not _gc_initialized:
+            # Try to get OAuth credentials from config or environment variable
+            oauth_credentials_json = None
+            
+            # First try to get from config
+            try:
+                from config import get_config
+                config = get_config("config.json")  # Explicitly load config file
+                oauth_credentials_json = config.google_oauth_credentials_json
+            except:
+                pass
+            
+            # Fall back to environment variable
+            if not oauth_credentials_json:
+                oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+            
+            if oauth_credentials_json:
+                # Use OAuth2 authentication
+                print("🔐 Using Google OAuth2 authentication...")
+                creds = get_oauth_credentials_from_json(oauth_credentials_json)
+            else:
+                print("❌ Please add GOOGLE_OAUTH_CREDENTIALS_JSON to your environment variables or config file.")
+                return None
+            
+            if creds:
+                # Authorize the client
+                _gc_client = gspread.authorize(creds)
+                _gc_initialized = True
+                print("✅ Google Sheets client initialized")
+            else:
+                print("❌ Failed to initialize Google Sheets client")
+                return None
+        
+        # Set the global gc variable for compatibility
         global gc
-        # Try to get OAuth credentials from config or environment variable
-        oauth_credentials_json = None
+        gc = _gc_client
         
-        # First try to get from config
-        try:
-            from config import get_config
-            config = get_config("config.json")  # Explicitly load config file
-            oauth_credentials_json = config.google_oauth_credentials_json
-        except:
-            pass
-        
-        # Fall back to environment variable
-        if not oauth_credentials_json:
-            oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
-        
-        if oauth_credentials_json:
-            # Use OAuth2 authentication
-            print("🔐 Using Google OAuth2 authentication...")
-            creds = get_oauth_credentials_from_json(oauth_credentials_json)
-        else:
-            print("❌ Please add GOOGLE_OAUTH_CREDENTIALS_JSON to your environment variables or config file.")
-            return None
-        
-        if creds:
-            # Authorize the client
-            gc = gspread.authorize(creds)
-            print("✅ Google Sheets client initialized")
-            return func(*args, **kwargs)
-        else:
-            print("❌ Failed to initialize Google Sheets client")
-            return None
+        return func(*args, **kwargs)
 
     return wrapper
 
@@ -304,7 +317,42 @@ class SheetAnalyzer:
             # Identify important rows
             important_rows = sheet_analyzer.identify_important_rows(df)
             
-            result = f"✅ Important Metrics Identified!\n\n"
+            # Add debugging information about all rows
+            result = f"🔍 Row Analysis Debug Information:\n\n"
+            result += f"📊 Total Rows in DataFrame: {len(df)}\n\n"
+            
+            # Show all rows with their analysis
+            result += f"📋 All Rows Analysis:\n"
+            result += "-" * 50 + "\n"
+            
+            for index, row in df.iterrows():
+                row_name = str(row.iloc[0])
+                numeric_values = pd.to_numeric(row.iloc[1:], errors='coerce').dropna()
+                total_value = numeric_values.abs().sum() if len(numeric_values) > 0 else 0
+                
+                # Check if it matches important keywords
+                important_keywords = [
+                    'revenue', 'sales', 'income', 'profit', 'margin', 'cost', 'expense',
+                    'gross', 'operating', 'net', 'ebitda', 'ebit', 'cash', 'flow',
+                    'assets', 'liabilities', 'equity', 'debt', 'capital'
+                ]
+                matches_keywords = any(keyword in row_name.lower() for keyword in important_keywords)
+                has_values = len(numeric_values) > 0 and total_value > 0
+                
+                status = "✅ IMPORTANT" if matches_keywords and has_values else "❌ SKIPPED"
+                reason = ""
+                if not matches_keywords:
+                    reason = " (no keyword match)"
+                elif not has_values:
+                    reason = " (no significant values)"
+                
+                result += f"{index:2d}. {row_name[:40]:<40} | {status}{reason}\n"
+                if matches_keywords:
+                    result += f"     Values: {numeric_values.tolist()[:3]}{'...' if len(numeric_values) > 3 else ''}\n"
+                    result += f"     Total: {total_value:.2f}\n"
+            
+            result += "\n" + "=" * 50 + "\n"
+            result += f"✅ Important Metrics Identified!\n\n"
             result += f"📊 Found {len(important_rows)} important financial metrics:\n\n"
             
             for i, row in enumerate(important_rows):
@@ -324,7 +372,10 @@ class SheetAnalyzer:
     def analyze_dataframe(
         sheet_name: Annotated[str, "name of the Google Sheet"],
         worksheet_name: Annotated[str, "name of the worksheet"],
-        header_row_index: Annotated[int, "index of the header row"]
+        header_row_index: Annotated[int, "index of the header row"],
+        max_charts_per_metric: Annotated[int, "maximum number of charts to create per metric (default: 1, creates only one chart per metric)"] = 1,
+        create_local_report: Annotated[bool, "create a local HTML report instead of returning text (default: False)"] = False,
+        output_format: Annotated[str, "output format for local report: 'html', 'markdown', or 'json' (default: 'html')"] = "html"
     ) -> str:
         """
         Step 4: Analyze DataFrame by identifying important metrics, generating commentary, and creating charts
@@ -333,9 +384,12 @@ class SheetAnalyzer:
             sheet_name: Name of the Google Sheet
             worksheet_name: Name of the worksheet
             header_row_index: Index of the header row
+            max_charts_per_metric: Maximum number of charts to create per metric
+            create_local_report: Whether to create a local HTML report instead of returning text
+            output_format: Output format for local report ('html', 'markdown', or 'json')
             
         Returns:
-            Complete analysis with commentary and charts
+            Complete analysis with commentary and charts, or path to local report if create_local_report=True
         """
         
         try:
@@ -369,50 +423,104 @@ class SheetAnalyzer:
             if df.empty:
                 return "❌ Error: Could not extract DataFrame"
             
-            # Step 1: Identify important metrics
-            important_metrics_result = SheetAnalyzer.identify_important_metrics(sheet_name, worksheet_name, header_row_index)
+            # Step 1: Identify ALL rows with numeric data (or important metrics if not creating local report)
+            if create_local_report:
+                # Use all numeric rows for local report
+                all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df)
+                
+                if not all_numeric_rows:
+                    return "❌ No rows with numeric data found to analyze"
+                
+                # Extract row indices
+                row_indices = [row_info['index'] for row_info in all_numeric_rows]
+                row_names = [row_info['name'] for row_info in all_numeric_rows]
+            else:
+                # Use important metrics for text output (original behavior)
+                important_metrics_result = SheetAnalyzer.identify_important_metrics(sheet_name, worksheet_name, header_row_index)
+                
+                if "❌ Error" in important_metrics_result:
+                    return f"❌ Failed to identify important metrics: {important_metrics_result}"
+                
+                # Extract important row indices from the result
+                import re
+                row_indices = []
+                for line in important_metrics_result.split('\n'):
+                    match = re.search(r'Row Index: (\d+)', line)
+                    if match:
+                        row_indices.append(int(match.group(1)))
+                
+                if not row_indices:
+                    return "❌ No important metrics found to analyze"
+                
+                row_names = [df.iloc[idx, 0] for idx in row_indices]
             
-            if "❌ Error" in important_metrics_result:
-                return f"❌ Failed to identify important metrics: {important_metrics_result}"
-            
-            # Extract important row indices from the result
-            import re
-            row_indices = []
-            for line in important_metrics_result.split('\n'):
-                match = re.search(r'Row Index: (\d+)', line)
-                if match:
-                    row_indices.append(int(match.group(1)))
-            
-            if not row_indices:
-                return "❌ No important metrics found to analyze"
-            
-            # Step 2: Generate commentary for each important metric
+            # Step 2: Generate commentary for each row
             commentaries = []
             for row_idx in row_indices:
                 commentary = sheet_analyzer._generate_commentary_for_row(df, row_idx)
                 commentaries.append(commentary)
             
-            # Step 3: Create charts for each important metric
+            # Step 3: Create charts for each row (limit to max_charts_per_metric to avoid token limits)
             charts = []
             chart_paths = []
             for row_idx in row_indices:
-                chart_data = sheet_analyzer._create_chart_for_row(df, row_idx)
+                chart_data = sheet_analyzer._create_chart_for_row(df, row_idx, max_charts_per_metric=max_charts_per_metric, use_stacked_for_summary=create_local_report)
                 charts.append(chart_data)
                 
-                # Extract chart paths from the result (now multiple charts per metric)
+                # Extract chart paths from the result
                 import re
-                path_matches = re.findall(r'📄 \w+ chart: (.+\.png)', chart_data)
+                path_matches = re.findall(r'📄 Chart: (.+\.png)', chart_data)
                 chart_paths.extend(path_matches)
             
-            # Combine results
-            result = f"📊 Complete DataFrame Analysis for {sheet_name}"
-            if worksheet_name:
-                result += f" - {worksheet_name}"
-            result += "\n\n"
-            result += "=" * 80 + "\n"
-            result += "STEP 1: Important Metrics Identification\n"
-            result += "=" * 80 + "\n"
-            result += important_metrics_result + "\n\n"
+            # Step 4: Generate local report or combine text results
+            if create_local_report:
+                # Create local report
+                import os
+                from datetime import datetime
+                
+                # Create reports directory
+                reports_dir = "reports"
+                os.makedirs(reports_dir, exist_ok=True)
+                
+                # Generate filename with timestamp
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                safe_sheet_name = sheet_name.replace(" ", "_").replace("/", "_")
+                safe_worksheet_name = worksheet_name.replace(" ", "_").replace("/", "_")
+                
+                if output_format == "html":
+                    report_path = os.path.join(reports_dir, f"{safe_sheet_name}_{safe_worksheet_name}_analysis_{timestamp}.html")
+                    report_content = sheet_analyzer._generate_html_report(
+                        sheet_name, worksheet_name, all_numeric_rows, commentaries, charts, chart_paths
+                    )
+                elif output_format == "markdown":
+                    report_path = os.path.join(reports_dir, f"{safe_sheet_name}_{safe_worksheet_name}_analysis_{timestamp}.md")
+                    report_content = sheet_analyzer._generate_markdown_report(
+                        sheet_name, worksheet_name, all_numeric_rows, commentaries, charts, chart_paths
+                    )
+                elif output_format == "json":
+                    report_path = os.path.join(reports_dir, f"{safe_sheet_name}_{safe_worksheet_name}_analysis_{timestamp}.json")
+                    report_content = sheet_analyzer._generate_json_report(
+                        sheet_name, worksheet_name, all_numeric_rows, commentaries, charts, chart_paths
+                    )
+                else:
+                    return f"❌ Unsupported output format: {output_format}"
+                
+                # Save report
+                with open(report_path, 'w', encoding='utf-8') as f:
+                    f.write(report_content)
+                
+                return f"✅ Local report generated successfully!\n\n📁 Report saved to: {report_path}\n📊 Charts saved to: drive/ folder\n📈 Total rows analyzed: {len(all_numeric_rows)}\n📊 Total charts created: {len(chart_paths)}"
+            else:
+                # Original text output behavior
+                # Combine results
+                result = f"📊 Complete DataFrame Analysis for {sheet_name}"
+                if worksheet_name:
+                    result += f" - {worksheet_name}"
+                result += "\n\n"
+                result += "=" * 80 + "\n"
+                result += "STEP 1: Important Metrics Identification\n"
+                result += "=" * 80 + "\n"
+                result += important_metrics_result + "\n\n"
             
             result += "=" * 80 + "\n"
             result += "STEP 2: Commentary for Each Metric\n"
@@ -438,6 +546,128 @@ class SheetAnalyzer:
             
         except Exception as e:
             return f"❌ Error analyzing DataFrame: {str(e)}"
+
+    @staticmethod
+    @init_google_sheets
+    def analyze_all_rows(
+        sheet_name: Annotated[str, "name of the Google Sheet"],
+        worksheet_name: Annotated[str, "name of the worksheet"],
+        header_row_index: Annotated[int, "index of the header row"],
+        max_charts_per_metric: Annotated[int, "maximum number of charts to create per metric (default: 1, creates only one chart per metric)"] = 1
+    ) -> str:
+        """
+        Step 4: Analyze ALL rows with numeric data, creating charts for each row and stacked charts for summary rows
+        
+        Args:
+            sheet_name: Name of the Google Sheet
+            worksheet_name: Name of the worksheet
+            header_row_index: Index of the header row
+            max_charts_per_metric: Maximum number of charts to create per metric
+            
+        Returns:
+            Complete analysis with commentary and charts for all numeric rows
+        """
+        
+        try:
+            # Get OAuth credentials
+            oauth_credentials_json = None
+            try:
+                from config import get_config
+                config = get_config("config.json")
+                oauth_credentials_json = config.google_oauth_credentials_json
+            except:
+                oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+            
+            if not oauth_credentials_json:
+                return "❌ OAuth credentials not found in config or environment variables."
+            
+            creds = get_oauth_credentials_from_json(oauth_credentials_json)
+            sheet_analyzer = SheetAnalyzer(creds)
+            
+            # Create header info structure
+            header_info = {
+                'header_row_index': header_row_index,
+                'header_row': [],
+                'periods': [],
+                'period_type': 'unknown',
+                'year': None
+            }
+            
+            # Extract DataFrame
+            df = sheet_analyzer.extract_dataframe(sheet_name, worksheet_name, header_info)
+            
+            if df.empty:
+                return "❌ Error: Could not extract DataFrame"
+            
+            # Step 1: Identify ALL rows with numeric data
+            all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df)
+            
+            if not all_numeric_rows:
+                return "❌ No rows with numeric data found to analyze"
+            
+            # Step 2: Generate commentary for each numeric row
+            commentaries = []
+            for row_info in all_numeric_rows:
+                commentary = sheet_analyzer._generate_commentary_for_row(df, row_info['index'])
+                commentaries.append(commentary)
+            
+            # Step 3: Create charts for each numeric row (with stacked charts for summary rows)
+            charts = []
+            chart_paths = []
+            for row_info in all_numeric_rows:
+                chart_data = sheet_analyzer._create_chart_for_row(df, row_info['index'], max_charts_per_metric=max_charts_per_metric, use_stacked_for_summary=True)
+                charts.append(chart_data)
+                
+                # Extract chart paths from the result
+                import re
+                path_matches = re.findall(r'📄 Chart: (.+\.png)', chart_data)
+                chart_paths.extend(path_matches)
+            
+            # Combine results
+            result = f"📊 Complete All-Rows Analysis for {sheet_name}"
+            if worksheet_name:
+                result += f" - {worksheet_name}"
+            result += "\n\n"
+            result += "=" * 80 + "\n"
+            result += "STEP 1: All Numeric Rows Identification\n"
+            result += "=" * 80 + "\n"
+            result += f"📊 Found {len(all_numeric_rows)} rows with numeric data:\n\n"
+            
+            for i, row_info in enumerate(all_numeric_rows):
+                result += f"{i+1}. {row_info['name']}\n"
+                result += f"   📊 Type: {row_info['type']}\n"
+                result += f"   📊 Total: {row_info['total']:.2f}\n"
+                result += f"   📊 Average: {row_info['avg']:.2f}\n"
+                result += f"   📊 Row Index: {row_info['index']}\n"
+                if row_info['is_summary']:
+                    result += f"   📊 Summary Row: Yes (with {len(row_info['component_rows'])} components)\n"
+                result += "\n"
+            
+            result += "=" * 80 + "\n"
+            result += "STEP 2: Commentary for Each Row\n"
+            result += "=" * 80 + "\n"
+            for i, commentary in enumerate(commentaries):
+                result += f"📝 Row {i+1}:\n{commentary}\n\n"
+            
+            result += "=" * 80 + "\n"
+            result += "STEP 3: Charts Created\n"
+            result += "=" * 80 + "\n"
+            for i, chart in enumerate(charts):
+                result += f"📈 Chart {i+1}:\n{chart}\n\n"
+            
+            result += "=" * 80 + "\n"
+            result += "CHART PATHS FOR DOCUMENT INSERTION\n"
+            result += "=" * 80 + "\n"
+            result += f"📁 Chart files created: {len(chart_paths)}\n"
+            for i, chart_path in enumerate(chart_paths, 1):
+                result += f"   {i}. {chart_path}\n"
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error analyzing all rows: {str(e)}"
+
+
     
     def _generate_commentary_for_row(self, df: pd.DataFrame, row_idx: int) -> str:
         """
@@ -494,16 +724,18 @@ class SheetAnalyzer:
         except Exception as e:
             return f"❌ Error generating commentary for row {row_idx}: {str(e)}"
     
-    def _create_chart_for_row(self, df: pd.DataFrame, row_idx: int) -> str:
+    def _create_chart_for_row(self, df: pd.DataFrame, row_idx: int, max_charts_per_metric: int = 1, use_stacked_for_summary: bool = True) -> str:
         """
-        Create a chart for a specific row in the DataFrame, separating different period types
+        Create a chart for a specific row in the DataFrame, prioritizing period types
         
         Args:
             df: DataFrame to analyze
             row_idx: Index of the row to create chart for
+            max_charts_per_metric: Maximum number of charts to create per metric (default: 1, creates only one chart per metric)
+            use_stacked_for_summary: Whether to create stacked bar charts for summary rows (default: True)
             
         Returns:
-            Chart creation result
+            Chart creation result (creates one chart per metric, prioritizing monthly > quarterly > annual > other)
         """
         try:
             if row_idx >= len(df):
@@ -512,8 +744,23 @@ class SheetAnalyzer:
             row_name = df.iloc[row_idx, 0]  # First column is usually the row name
             row_data = df.iloc[row_idx, 1:]  # Skip the first column (row name)
             
-            # Convert to numeric, ignoring errors
-            numeric_data = pd.to_numeric(row_data, errors='coerce')
+            # Convert to numeric, handling negative values in parentheses
+            def parse_financial_value(value):
+                if pd.isna(value) or value == '':
+                    return None
+                value_str = str(value).strip()
+                # Handle negative values in parentheses like "(21.0)" -> -21.0
+                if value_str.startswith('(') and value_str.endswith(')'):
+                    try:
+                        return -float(value_str[1:-1])
+                    except ValueError:
+                        return None
+                try:
+                    return float(value_str)
+                except ValueError:
+                    return None
+            
+            numeric_data = pd.Series([parse_financial_value(val) for val in row_data])
             
             if numeric_data.isna().all():
                 return f"📈 {row_name}: No numeric data available for charting"
@@ -560,117 +807,128 @@ class SheetAnalyzer:
             chart_paths = []
             total_charts = 0
             
-            # Create separate charts for each period type
+            # Create separate charts for each period type (limited by max_charts_per_metric)
             import matplotlib
             matplotlib.use('Agg')  # Use non-interactive backend
             import matplotlib.pyplot as plt
             
-            # Monthly chart
-            if monthly_periods and len(monthly_periods) >= 2:
-                plt.figure(figsize=(12, 6))
-                plt.bar(range(len(monthly_periods)), monthly_data, color='skyblue', alpha=0.7)
-                plt.title(f'{row_name} - Monthly Analysis', fontsize=14, fontweight='bold')
-                plt.xlabel('Months', fontsize=12)
-                plt.ylabel('Value', fontsize=12)
-                plt.xticks(range(len(monthly_periods)), monthly_periods, rotation=45, ha='right')
-                
-                # Add value labels on bars
-                for i, v in enumerate(monthly_data):
-                    if not pd.isna(v):
-                        plt.text(i, v, f'{v:.1f}', ha='center', va='bottom', fontsize=10)
-                
-                plt.grid(axis='y', alpha=0.3)
-                plt.tight_layout()
-                
-                chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_monthly_chart.png"
-                chart_path = os.path.join(drive_folder, chart_filename)
-                plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                chart_paths.append(chart_path)
-                total_charts += 1
+            # Priority order: monthly > quarterly > annual > other
+            chart_types = [
+                ('monthly', monthly_periods, monthly_data, 'skyblue'),
+                ('quarterly', quarterly_periods, quarterly_data, 'lightgreen'),
+                ('annual', annual_periods, annual_data, 'orange'),
+                ('other', other_periods, other_data, 'lightcoral')
+            ]
             
-            # Quarterly chart
-            if quarterly_periods and len(quarterly_periods) >= 2:
-                plt.figure(figsize=(10, 6))
-                plt.bar(range(len(quarterly_periods)), quarterly_data, color='lightgreen', alpha=0.7)
-                plt.title(f'{row_name} - Quarterly Analysis', fontsize=14, fontweight='bold')
-                plt.xlabel('Quarters', fontsize=12)
-                plt.ylabel('Value', fontsize=12)
-                plt.xticks(range(len(quarterly_periods)), quarterly_periods, rotation=45, ha='right')
+            # Check if this is a summary row and create stacked chart if components are found
+            if use_stacked_for_summary:
+                summary_keywords = ['total', 'sum', 'net', 'gross', 'operating']
+                is_summary = any(keyword in row_name.lower() for keyword in summary_keywords)
                 
-                # Add value labels on bars
-                for i, v in enumerate(quarterly_data):
-                    if not pd.isna(v):
-                        plt.text(i, v, f'{v:.1f}', ha='center', va='bottom', fontsize=10)
-                
-                plt.grid(axis='y', alpha=0.3)
-                plt.tight_layout()
-                
-                chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_quarterly_chart.png"
-                chart_path = os.path.join(drive_folder, chart_filename)
-                plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                chart_paths.append(chart_path)
-                total_charts += 1
+                if is_summary:
+                    component_rows = self._find_component_rows(df, row_idx, row_name)
+                    
+                    if component_rows and len(component_rows) > 0:
+                        # Create stacked bar chart for summary row with components (only one chart)
+                        for chart_type, periods_list, data_list, color in chart_types:
+                            if periods_list and len(periods_list) >= 2:
+                                # Only create one chart per metric
+                                if total_charts >= max_charts_per_metric:
+                                    break
+                                plt.figure(figsize=(14, 8))
+                                
+                                # Prepare data for stacked chart
+                                component_data = []
+                                component_names = []
+                                
+                                for component in component_rows:
+                                    comp_values = pd.to_numeric(df.iloc[component['index'], 1:], errors='coerce').dropna()
+                                    if len(comp_values) > 0:
+                                        # Align component data with periods
+                                        aligned_data = []
+                                        for period in periods_list:
+                                            period_idx = df.columns.get_loc(period) - 1  # -1 because first col is row name
+                                            if period_idx < len(comp_values):
+                                                aligned_data.append(comp_values.iloc[period_idx])
+                                            else:
+                                                aligned_data.append(0)
+                                        component_data.append(aligned_data)
+                                        component_names.append(component['name'])
+                                
+                                if component_data:
+                                    # Create stacked bar chart
+                                    bottom = np.zeros(len(periods_list))
+                                    colors = plt.cm.Set3(np.linspace(0, 1, len(component_data)))
+                                    
+                                    for i, (comp_data, comp_name) in enumerate(zip(component_data, component_names)):
+                                        plt.bar(range(len(periods_list)), comp_data, bottom=bottom, 
+                                               label=comp_name, color=colors[i], alpha=0.8)
+                                        bottom += np.array(comp_data)
+                                    
+                                    plt.title(f'{row_name} - {chart_type.title()} Breakdown', fontsize=14, fontweight='bold')
+                                    plt.xlabel('Periods', fontsize=12)
+                                    plt.ylabel('Value', fontsize=12)
+                                    plt.xticks(range(len(periods_list)), periods_list, rotation=45, ha='right')
+                                    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+                                    plt.grid(axis='y', alpha=0.3)
+                                    plt.tight_layout()
+                                    
+                                    chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_{chart_type}_stacked_chart.png"
+                                    chart_path = os.path.join(drive_folder, chart_filename)
+                                    plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+                                    plt.close()
+                                    chart_paths.append(chart_path)
+                                    total_charts += 1
+                                    break  # Only create one stacked chart per summary row
+                        
+                        if total_charts > 0:
+                            # Return early if stacked chart was created
+                            result = f"📈 Stacked chart created for {row_name}:\n"
+                            for chart_path in chart_paths:
+                                result += f"   📄 Stacked chart: {chart_path}\n"
+                            result += f"   📊 Total charts: {total_charts}\n"
+                            result += f"   📈 Chart type: Stacked bar chart with {len(component_rows)} components"
+                            return result
             
-            # Annual chart
-            if annual_periods and len(annual_periods) >= 1:
-                plt.figure(figsize=(8, 6))
-                plt.bar(range(len(annual_periods)), annual_data, color='orange', alpha=0.7)
-                plt.title(f'{row_name} - Annual Analysis', fontsize=14, fontweight='bold')
-                plt.xlabel('Years', fontsize=12)
-                plt.ylabel('Value', fontsize=12)
-                plt.xticks(range(len(annual_periods)), annual_periods, rotation=45, ha='right')
-                
-                # Add value labels on bars
-                for i, v in enumerate(annual_data):
-                    if not pd.isna(v):
-                        plt.text(i, v, f'{v:.1f}', ha='center', va='bottom', fontsize=10)
-                
-                plt.grid(axis='y', alpha=0.3)
-                plt.tight_layout()
-                
-                chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_annual_chart.png"
-                chart_path = os.path.join(drive_folder, chart_filename)
-                plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                chart_paths.append(chart_path)
-                total_charts += 1
-            
-            # Other periods chart (if any)
-            if other_periods and len(other_periods) >= 2:
-                plt.figure(figsize=(10, 6))
-                plt.bar(range(len(other_periods)), other_data, color='lightcoral', alpha=0.7)
-                plt.title(f'{row_name} - Other Periods Analysis', fontsize=14, fontweight='bold')
-                plt.xlabel('Periods', fontsize=12)
-                plt.ylabel('Value', fontsize=12)
-                plt.xticks(range(len(other_periods)), other_periods, rotation=45, ha='right')
-                
-                # Add value labels on bars
-                for i, v in enumerate(other_data):
-                    if not pd.isna(v):
-                        plt.text(i, v, f'{v:.1f}', ha='center', va='bottom', fontsize=10)
-                
-                plt.grid(axis='y', alpha=0.3)
-                plt.tight_layout()
-                
-                chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_other_chart.png"
-                chart_path = os.path.join(drive_folder, chart_filename)
-                plt.savefig(chart_path, dpi=300, bbox_inches='tight')
-                plt.close()
-                chart_paths.append(chart_path)
-                total_charts += 1
+            # Create regular chart if no stacked chart was created (only one chart per metric)
+            for chart_type, periods_list, data_list, color in chart_types:
+                if periods_list and len(periods_list) >= 2:
+                    # Only create one chart per metric
+                    if total_charts >= max_charts_per_metric:
+                        break
+                        
+                    plt.figure(figsize=(12, 6))
+                    plt.bar(range(len(periods_list)), data_list, color=color, alpha=0.7)
+                    plt.title(f'{row_name} - {chart_type.title()} Analysis', fontsize=14, fontweight='bold')
+                    plt.xlabel('Periods', fontsize=12)
+                    plt.ylabel('Value', fontsize=12)
+                    plt.xticks(range(len(periods_list)), periods_list, rotation=45, ha='right')
+                    
+                    # Add value labels on bars
+                    for i, v in enumerate(data_list):
+                        if not pd.isna(v):
+                            plt.text(i, v, f'{v:.1f}', ha='center', va='bottom', fontsize=10)
+                    
+                    plt.grid(axis='y', alpha=0.3)
+                    plt.tight_layout()
+                    
+                    chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_{chart_type}_chart.png"
+                    chart_path = os.path.join(drive_folder, chart_filename)
+                    plt.savefig(chart_path, dpi=300, bbox_inches='tight')
+                    plt.close()
+                    chart_paths.append(chart_path)
+                    total_charts += 1
+                    break  # Only create one chart per metric
             
             if total_charts == 0:
                 return f"📈 {row_name}: No valid period groups found for charting"
             
             # Return results
-            result = f"📈 Charts created for {row_name}:\n"
-            for i, chart_path in enumerate(chart_paths):
-                period_type = ["monthly", "quarterly", "annual", "other"][i] if i < 4 else "mixed"
-                result += f"   📄 {period_type.capitalize()} chart: {chart_path}\n"
+            result = f"📈 Chart created for {row_name}:\n"
+            for chart_path in chart_paths:
+                result += f"   📄 Chart: {chart_path}\n"
             result += f"   📊 Total charts: {total_charts}\n"
-            result += f"   📈 Chart types: Bar charts"
+            result += f"   📈 Chart type: Bar chart"
             
             return result
             
@@ -1180,7 +1438,8 @@ class SheetAnalyzer:
         important_keywords = [
             'revenue', 'sales', 'income', 'profit', 'margin', 'cost', 'expense',
             'gross', 'operating', 'net', 'ebitda', 'ebit', 'cash', 'flow',
-            'assets', 'liabilities', 'equity', 'debt', 'capital'
+            'assets', 'liabilities', 'equity', 'debt', 'capital', 'marketing', 
+            'CAC', 'customers', 'LTV', 'churn', 'ARPU'
         ]
         
         for index, row in df.iterrows():
@@ -1204,6 +1463,317 @@ class SheetAnalyzer:
                 })
         
         return important_rows
+
+    def identify_all_numeric_rows(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Identify ALL rows that have numeric data for charting
+        
+        Args:
+            df: DataFrame to analyze
+            
+        Returns:
+            List of all numeric row dictionaries with component detection
+        """
+        numeric_rows = []
+        
+        for index, row in df.iterrows():
+            row_name = str(row.iloc[0])
+            numeric_values = pd.to_numeric(row.iloc[1:], errors='coerce').dropna()
+            
+            if len(numeric_values) > 0 and numeric_values.abs().sum() > 0:
+                # Check if this is a summary row (contains 'total', 'sum', etc.)
+                summary_keywords = ['total', 'sum', 'net', 'gross', 'operating']
+                is_summary = any(keyword in row_name.lower() for keyword in summary_keywords)
+                
+                # Find component rows for summary rows
+                component_rows = []
+                if is_summary:
+                    component_rows = self._find_component_rows(df, index, row_name)
+                
+                numeric_rows.append({
+                    'index': index,
+                    'name': row_name,
+                    'type': self._categorize_row(row_name),
+                    'total': numeric_values.abs().sum(),
+                    'avg': numeric_values.mean(),
+                    'values': numeric_values.tolist(),
+                    'is_summary': is_summary,
+                    'component_rows': component_rows
+                })
+        
+        return numeric_rows
+
+    def _find_component_rows(self, df: pd.DataFrame, summary_row_index: int, summary_row_name: str) -> List[Dict[str, Any]]:
+        """
+        Find component rows that likely make up a summary row
+        
+        Args:
+            df: DataFrame to analyze
+            summary_row_index: Index of the summary row
+            summary_row_name: Name of the summary row
+            
+        Returns:
+            List of component row dictionaries
+        """
+        components = []
+        
+        # Look for rows above the summary row that might be components
+        for i in range(summary_row_index - 1, max(0, summary_row_index - 10), -1):
+            if i >= len(df):
+                continue
+                
+            component_name = str(df.iloc[i, 0])
+            
+            # Use the same financial value parsing logic
+            def parse_financial_value(value):
+                if pd.isna(value) or value == '':
+                    return None
+                value_str = str(value).strip()
+                # Handle negative values in parentheses like "(21.0)" -> -21.0
+                if value_str.startswith('(') and value_str.endswith(')'):
+                    try:
+                        return -float(value_str[1:-1])
+                    except ValueError:
+                        return None
+                try:
+                    return float(value_str)
+                except ValueError:
+                    return None
+            
+            component_values = pd.Series([parse_financial_value(val) for val in df.iloc[i, 1:]]).dropna()
+            
+            if len(component_values) > 0 and component_values.abs().sum() > 0:
+                # Check if this component name appears in the summary name or vice versa
+                summary_lower = summary_row_name.lower()
+                component_lower = component_name.lower()
+                
+                # Skip if it's another summary row
+                if any(keyword in component_lower for keyword in ['total', 'sum', 'net']):
+                    continue
+                
+                # Check for logical relationships
+                is_component = False
+                
+                # Revenue components
+                if 'revenue' in summary_lower and ('revenue' in component_lower or 'sales' in component_lower):
+                    is_component = True
+                # Expense components  
+                elif 'expense' in summary_lower and 'expense' in component_lower:
+                    is_component = True
+                # Cost components
+                elif 'cost' in summary_lower and 'cost' in component_lower:
+                    is_component = True
+                # Profit components
+                elif 'profit' in summary_lower and ('revenue' in component_lower or 'cost' in component_lower or 'expense' in component_lower):
+                    is_component = True
+                
+                if is_component:
+                    components.append({
+                        'index': i,
+                        'name': component_name,
+                        'values': component_values.tolist()
+                    })
+        
+        return components
+
+    def _generate_html_report(self, sheet_name: str, worksheet_name: str, all_numeric_rows: List[Dict], commentaries: List[str], charts: List[str], chart_paths: List[str]) -> str:
+        """Generate HTML report with embedded charts and commentary"""
+        
+        html_content = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Analysis Report - {sheet_name}</title>
+    <style>
+        body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
+        h1 {{ color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }}
+        h2 {{ color: #34495e; margin-top: 30px; }}
+        h3 {{ color: #7f8c8d; }}
+        .summary {{ background: #ecf0f1; padding: 20px; border-radius: 8px; margin: 20px 0; }}
+        .metric {{ background: #f8f9fa; padding: 15px; margin: 10px 0; border-left: 4px solid #3498db; border-radius: 4px; }}
+        .chart-container {{ text-align: center; margin: 20px 0; }}
+        .chart-container img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 8px; }}
+        .commentary {{ background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 4px; border-left: 4px solid #ffc107; }}
+        .timestamp {{ color: #7f8c8d; font-size: 0.9em; text-align: center; margin-top: 30px; }}
+        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }}
+        .stat-card {{ background: #e8f4fd; padding: 15px; border-radius: 8px; text-align: center; }}
+        .stat-number {{ font-size: 2em; font-weight: bold; color: #2980b9; }}
+        .stat-label {{ color: #7f8c8d; font-size: 0.9em; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Financial Analysis Report</h1>
+        <div class="summary">
+            <h2>📋 Analysis Summary</h2>
+            <p><strong>Sheet:</strong> {sheet_name}</p>
+            <p><strong>Worksheet:</strong> {worksheet_name}</p>
+            <p><strong>Analysis Date:</strong> {datetime.now().strftime("%B %d, %Y at %I:%M %p")}</p>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">{len(all_numeric_rows)}</div>
+                <div class="stat-label">Rows Analyzed</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{len(chart_paths)}</div>
+                <div class="stat-label">Charts Created</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{len([r for r in all_numeric_rows if r['is_summary']])}</div>
+                <div class="stat-label">Summary Rows</div>
+            </div>
+        </div>
+        
+        <h2>📈 Row Analysis</h2>"""
+        
+        for i, row_info in enumerate(all_numeric_rows):
+            html_content += f"""
+        <div class="metric">
+            <h3>{i+1}. {row_info['name']}</h3>
+            <p><strong>Type:</strong> {row_info['type']} | <strong>Total:</strong> {row_info['total']:.2f} | <strong>Average:</strong> {row_info['avg']:.2f}</p>"""
+            
+            if row_info['is_summary']:
+                html_content += f"""
+            <p><strong>Summary Row:</strong> Yes (with {len(row_info['component_rows'])} components)</p>"""
+            
+            # Add commentary
+            if i < len(commentaries):
+                html_content += f"""
+            <div class="commentary">
+                <strong>Analysis:</strong> {commentaries[i]}
+            </div>"""
+            
+            # Add chart if available (robust matching)
+            chart_found = False
+            import os
+            sanitized_row_name = row_info['name'].replace(' ', '_').replace('/', '_')
+            for chart_path in chart_paths:
+                chart_base = os.path.splitext(os.path.basename(chart_path))[0]
+                if chart_base.startswith(sanitized_row_name):
+                    html_content += f"""
+            <div class="chart-container">
+                <img src="../{chart_path}" alt="Chart for {row_info['name']}" />
+            </div>"""
+                    chart_found = True
+                    break
+            if not chart_found:
+                html_content += """
+            <p><em>No chart available for this metric.</em></p>"""
+            html_content += """
+        </div>"""
+        
+        html_content += f"""
+        
+        <div class="timestamp">
+            <p>Report generated on {datetime.now().strftime("%B %d, %Y at %I:%M:%S %p")}</p>
+        </div>
+    </div>
+</body>
+</html>"""
+        
+        return html_content
+
+    def _generate_markdown_report(self, sheet_name: str, worksheet_name: str, all_numeric_rows: List[Dict], commentaries: List[str], charts: List[str], chart_paths: List[str]) -> str:
+        """Generate Markdown report with chart references and commentary"""
+        
+        md_content = f"""# 📊 Financial Analysis Report
+
+## 📋 Analysis Summary
+
+- **Sheet:** {sheet_name}
+- **Worksheet:** {worksheet_name}
+- **Analysis Date:** {datetime.now().strftime("%B %d, %Y at %I:%M %p")}
+- **Total Rows Analyzed:** {len(all_numeric_rows)}
+- **Total Charts Created:** {len(chart_paths)}
+- **Summary Rows:** {len([r for r in all_numeric_rows if r['is_summary']])}
+
+---
+
+## 📈 Row Analysis
+
+"""
+        
+        for i, row_info in enumerate(all_numeric_rows):
+            md_content += f"""### {i+1}. {row_info['name']}
+
+- **Type:** {row_info['type']}
+- **Total:** {row_info['total']:.2f}
+- **Average:** {row_info['avg']:.2f}
+"""
+            
+            if row_info['is_summary']:
+                md_content += f"- **Summary Row:** Yes (with {len(row_info['component_rows'])} components)\n"
+            
+            # Add commentary
+            if i < len(commentaries):
+                md_content += f"""
+**Analysis:** {commentaries[i]}
+
+"""
+            
+            # Add chart reference
+            chart_found = False
+            for chart_path in chart_paths:
+                if row_info['name'].replace(' ', '_').replace('/', '_') in chart_path:
+                    md_content += f"![Chart for {row_info['name']}]({chart_path})\n\n"
+                    chart_found = True
+                    break
+            
+            if not chart_found:
+                md_content += "*No chart available for this metric.*\n\n"
+            
+            md_content += "---\n\n"
+        
+        md_content += f"""
+---
+
+*Report generated on {datetime.now().strftime("%B %d, %Y at %I:%M:%S %p")}*"""
+        
+        return md_content
+
+    def _generate_json_report(self, sheet_name: str, worksheet_name: str, all_numeric_rows: List[Dict], commentaries: List[str], charts: List[str], chart_paths: List[str]) -> str:
+        """Generate JSON report with structured data"""
+        
+        import json
+        
+        report_data = {
+            "metadata": {
+                "sheet_name": sheet_name,
+                "worksheet_name": worksheet_name,
+                "analysis_date": datetime.now().isoformat(),
+                "total_rows_analyzed": len(all_numeric_rows),
+                "total_charts_created": len(chart_paths),
+                "summary_rows_count": len([r for r in all_numeric_rows if r['is_summary']])
+            },
+            "rows": []
+        }
+        
+        for i, row_info in enumerate(all_numeric_rows):
+            row_data = {
+                "index": i + 1,
+                "name": row_info['name'],
+                "type": row_info['type'],
+                "total": row_info['total'],
+                "average": row_info['avg'],
+                "is_summary": row_info['is_summary'],
+                "component_rows": row_info['component_rows'],
+                "commentary": commentaries[i] if i < len(commentaries) else "",
+                "chart_path": None
+            }
+            
+            # Find associated chart
+            for chart_path in chart_paths:
+                if row_info['name'].replace(' ', '_').replace('/', '_') in chart_path:
+                    row_data["chart_path"] = chart_path
+                    break
+            
+            report_data["rows"].append(row_data)
+        
+        return json.dumps(report_data, indent=2, ensure_ascii=False)
     
     def _categorize_row(self, row_name: str) -> str:
         """Categorize a row based on its name"""

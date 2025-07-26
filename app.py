@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-Finance AI Analyst - Terminal Interface
+AI Finance Analyst - Terminal Interface
 
-An interactive terminal application to chat with the Finance AI Analyst agent.
-The agent will ask for human input and never auto-reply.
+An interactive terminal application to chat with the AI Finance Analyst.
 """
 
 import sys
@@ -11,6 +10,13 @@ import os
 import autogen
 from agents.finance_analyst import FinanceAnalystAgent
 from config import get_config
+
+class SimplePromptUserProxy(autogen.UserProxyAgent):
+    """Custom UserProxyAgent with simplified prompt"""
+    
+    def get_human_input(self, prompt: str) -> str:
+        """Override to use simple '>' prompt instead of default"""
+        return input("> ")
 
 def main():
     """Main function to start the interactive Finance Analyst agent."""
@@ -43,7 +49,7 @@ def main():
         
         # Create a user proxy for conversation
         print("👤 Creating user proxy for conversation...")
-        user_proxy = autogen.UserProxyAgent(
+        user_proxy = SimplePromptUserProxy(
             name="user",
             human_input_mode="ALWAYS",  # Always ask for your input when it's your turn
             max_consecutive_auto_reply=0,  # Never auto-reply - wait for your input

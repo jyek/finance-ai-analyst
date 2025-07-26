@@ -1,12 +1,14 @@
-# [WIP] Finance AI Analyst
+# [WIP] AI Finance Analyst
 
-An FP&A AI analyst that runs in your terminal and works within Google Drive, Sheets and Docs alongside you. It can do budget vs. actual analysis, plotting charts to understand trends and anomalies, and identify financial insights.
+An experimental AI finance analyst that runs in your terminal and works within Google Drive, Sheets and Docs alongside you. It can do budget vs. actual analysis, plotting charts to understand trends and anomalies, and identify financial insights.
 
 ## Features
 
+- ✔️ Find and download annual reports, earnings releases, presentations from a company's websites
 - ✔️ Pull public company financial data from Yahoo Finance into Google Sheets
-- ✔️ Analyze income statements and provide write commentary and charts in a Google Doc
 - ✔️ Read files from your Google Drive
+- ✔️ Analyze income statements and provide write commentary and charts in a Google Doc
+- 🚧 Do financial spreading
 - 🚧 Conduct benchmarking analysis
 
 ## Installation

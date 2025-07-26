@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 from textwrap import dedent
 from tools.workspace import WorkspaceUtils
 from tools.sheet import SheetUtils, SheetAnalyzer
+from tools.research import ResearchUtils
 
 class FinanceAnalystAgent:
     """Finance Analyst for analyzing spreadsheet trends"""
@@ -40,6 +41,11 @@ class FinanceAnalystAgent:
         (SheetAnalyzer.read_worksheet, "read_worksheet", "Read data from a specific worksheet using structured analysis (runs header identification and data extraction)"),
         (SheetAnalyzer.read_all_worksheets, "read_all_worksheets", "Read all worksheets from a Google Sheet using structured analysis for each worksheet"),
         (SheetAnalyzer.analyze_dataframe, "analyze_dataframe", "Analyze DataFrame by identifying important metrics, generating commentary, and creating charts"),
+
+        
+        # Research and document download 
+        (ResearchUtils.get_filings_from_company_website, "get_filings_from_company_website", "Search and download financial documents from a company's investor relations website based on criteria"),
+        (ResearchUtils.list_downloaded_filings, "list_downloaded_filings", "List all downloaded financial filings in the drive folder"),
     ]
     
     @staticmethod
@@ -99,6 +105,39 @@ class FinanceAnalystAgent:
             - Update Google Docs with new analysis or findings
             - Format reports with proper structure and metadata
 
+            Research and Document Download:
+            - Search for company investor relations pages
+            - Download financial documents (annual reports, presentations, filings)
+            - Search and download specific documents based on criteria
+            - List and manage downloaded financial documents
+            - Use browser automation to bypass anti-bot measures
+            
+            Document Search Intelligence:
+            - ALWAYS interpret user requests intelligently and infer document types from natural language
+            - "investor presentation" = document_type: ["presentation"]
+            - "annual report" = document_type: ["annual_report"]
+            - "quarterly report" = document_type: ["annual_report", "presentation"]
+            - "financial filings" = document_type: ["filing"]
+            - "latest" = prioritize_latest: True
+            - "recent" = prioritize_latest: True
+            - "2024" = keywords: ["2024"]
+            - "Q4" = keywords: ["q4", "quarterly"]
+            - DO NOT ask for clarification when the document type is clear from the request
+            - Automatically set reasonable defaults: max_documents=5, prioritize_latest=True
+            - Use keywords to improve search relevance based on the request context
+            - IMPORTANT: ONLY use the registered tools (get_filings_from_company_website, list_downloaded_filings)
+            - DO NOT try to execute browser automation code directly
+            - DO NOT try to import or use Playwright, requests, or other libraries directly
+            - All browser automation is handled internally by the registered tools
+
+            Note-Taking and Memory Management:
+            - ALWAYS create and maintain notes.md for tracking analysis sessions
+            - Store important findings, metrics, and insights in structured notes
+            - Use update_notes to add analysis results to specific sections
+            - Create sections for: Analysis History, Important Findings, To-Do Items, Key Metrics
+            - Maintain session continuity by reading previous notes before starting new analysis
+            - Document all significant discoveries and actionable insights
+
             Collaboration Features:
             - Share sheets and docs with team members
             - Organize files in Google Drive folders
@@ -123,7 +162,14 @@ class FinanceAnalystAgent:
             - Use read_worksheet for single worksheet analysis
             - Use read_all_worksheets for comprehensive spreadsheet analysis
             - Use analyze_dataframe to automatically identify metrics, generate commentary, and create charts
-            - Workflow: Header Identification → Data Extraction → Metric Identification → Commentary → Charts
+            - Workflow: Header Identification → Data Extraction → Metric Identification → Commentary → Charts → Notes Documentation
+            
+            Note-Taking Workflow:
+            - ALWAYS start by reading existing notes to understand previous analysis
+            - After each analysis, update notes with key findings and metrics
+            - Create structured sections: Analysis History, Important Findings, To-Do Items, Key Metrics
+            - Document specific values, trends, and insights discovered
+            - Use update_notes to maintain organized, timestamped records
             
             Document Creation Instructions:
             - When creating Google Docs with analysis results, ALWAYS use the detailed individual commentaries from the analysis
