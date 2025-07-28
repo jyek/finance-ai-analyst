@@ -8,7 +8,7 @@ This script demonstrates how to use the ResearchUtils to:
 3. List downloaded documents
 
 Usage:
-    python examples/05_search_financial_documents.py
+    python examples/05_get_company_filings.py
 """
 
 import json

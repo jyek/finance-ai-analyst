@@ -4,12 +4,11 @@ An experimental AI finance analyst that runs in your terminal and works within G
 
 ## Features
 
-- ✔️ Find and download annual reports, earnings releases, presentations from a company's websites
-- ✔️ Pull public company financial data from Yahoo Finance into Google Sheets
-- ✔️ Read files from your Google Drive
-- ✔️ Analyze income statements and provide write commentary and charts in a Google Doc
-- 🚧 Do financial spreading
-- 🚧 Conduct benchmarking analysis
+- Find and download annual reports, earnings releases, presentations from a company's websites
+- Pull public company financial data from Yahoo Finance into Google Sheets
+- Read sheets and docs from your Google Drive
+- Analyze income statements and provide create commentary and charts in a report
+- Conduct benchmarking analysis
 
 ## Installation
 

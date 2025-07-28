@@ -426,7 +426,7 @@ class SheetAnalyzer:
             # Step 1: Identify ALL rows with numeric data (or important metrics if not creating local report)
             if create_local_report:
                 # Use all numeric rows for local report
-                all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df)
+                all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df, sheet_name, worksheet_name)
                 
                 if not all_numeric_rows:
                     return "❌ No rows with numeric data found to analyze"
@@ -469,8 +469,13 @@ class SheetAnalyzer:
                 
                 # Extract chart paths from the result
                 import re
-                path_matches = re.findall(r'📄 Chart: (.+\.png)', chart_data)
+                # Look for both regular charts and stacked charts (case insensitive)
+                path_matches = re.findall(r'📄 (?:Stacked )?Chart: (.+\.png)', chart_data, re.IGNORECASE)
                 chart_paths.extend(path_matches)
+                
+                # Debug: Print chart data and extracted paths
+                print(f"🔍 Chart data for row {row_idx}: {chart_data[:200]}...")
+                print(f"🔍 Extracted paths: {path_matches}")
             
             # Step 4: Generate local report or combine text results
             if create_local_report:
@@ -482,6 +487,15 @@ class SheetAnalyzer:
                 reports_dir = "reports"
                 os.makedirs(reports_dir, exist_ok=True)
                 
+                # Get sheet ID for the link
+                try:
+                    sheet = gc.open(sheet_name)
+                    sheet_id = sheet.id
+                    sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+                except Exception as e:
+                    print(f"⚠️ Could not get sheet ID: {e}")
+                    sheet_url = "https://docs.google.com/spreadsheets/d/"
+                
                 # Generate filename with timestamp
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 safe_sheet_name = sheet_name.replace(" ", "_").replace("/", "_")
@@ -490,7 +504,7 @@ class SheetAnalyzer:
                 if output_format == "html":
                     report_path = os.path.join(reports_dir, f"{safe_sheet_name}_{safe_worksheet_name}_analysis_{timestamp}.html")
                     report_content = sheet_analyzer._generate_html_report(
-                        sheet_name, worksheet_name, all_numeric_rows, commentaries, charts, chart_paths
+                        sheet_name, worksheet_name, all_numeric_rows, commentaries, charts, chart_paths, sheet_url
                     )
                 elif output_format == "markdown":
                     report_path = os.path.join(reports_dir, f"{safe_sheet_name}_{safe_worksheet_name}_analysis_{timestamp}.md")
@@ -600,7 +614,7 @@ class SheetAnalyzer:
                 return "❌ Error: Could not extract DataFrame"
             
             # Step 1: Identify ALL rows with numeric data
-            all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df)
+            all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df, sheet_name, worksheet_name)
             
             if not all_numeric_rows:
                 return "❌ No rows with numeric data found to analyze"
@@ -620,7 +634,8 @@ class SheetAnalyzer:
                 
                 # Extract chart paths from the result
                 import re
-                path_matches = re.findall(r'📄 Chart: (.+\.png)', chart_data)
+                # Look for both regular charts and stacked charts (case insensitive)
+                path_matches = re.findall(r'📄 (?:Stacked )?Chart: (.+\.png)', chart_data, re.IGNORECASE)
                 chart_paths.extend(path_matches)
             
             # Combine results
@@ -703,10 +718,12 @@ class SheetAnalyzer:
             movements = self._calculate_movements(numeric_data)
             
             # Generate commentary
+            row_type = self._categorize_row(row_name)
             commentary = f"📝 {row_name}:\n"
             commentary += f"   📊 Total: {total:.2f}\n"
             commentary += f"   📊 Average: {avg:.2f}\n"
             commentary += f"   📊 Range: {min_val:.2f} to {max_val:.2f}\n"
+            commentary += f"   📝 Type: {row_type}\n"
             commentary += f"   📈 Trend: {movements['trend']}\n"
             commentary += f"   📈 Average Change: {movements['avg_change']:.2f}\n"
             commentary += f"   📈 Total Change: {movements['total_change']:.2f}\n"
@@ -826,6 +843,8 @@ class SheetAnalyzer:
                 is_summary = any(keyword in row_name.lower() for keyword in summary_keywords)
                 
                 if is_summary:
+                    # Note: sheet_name and worksheet_name are not available in this scope
+                    # We'll use the fallback heuristic approach for now
                     component_rows = self._find_component_rows(df, row_idx, row_name)
                     
                     if component_rows and len(component_rows) > 0:
@@ -842,7 +861,10 @@ class SheetAnalyzer:
                                 component_names = []
                                 
                                 for component in component_rows:
-                                    comp_values = pd.to_numeric(df.iloc[component['index'], 1:], errors='coerce').dropna()
+                                    # Use the same financial value parsing logic
+                                    comp_row_data = df.iloc[component['index'], 1:]
+                                    comp_values = pd.Series([parse_financial_value(val) for val in comp_row_data]).dropna()
+                                    
                                     if len(comp_values) > 0:
                                         # Align component data with periods
                                         aligned_data = []
@@ -1464,7 +1486,7 @@ class SheetAnalyzer:
         
         return important_rows
 
-    def identify_all_numeric_rows(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+    def identify_all_numeric_rows(self, df: pd.DataFrame, sheet_name: str = None, worksheet_name: str = None) -> List[Dict[str, Any]]:
         """
         Identify ALL rows that have numeric data for charting
         
@@ -1488,7 +1510,7 @@ class SheetAnalyzer:
                 # Find component rows for summary rows
                 component_rows = []
                 if is_summary:
-                    component_rows = self._find_component_rows(df, index, row_name)
+                    component_rows = self._find_component_rows(df, index, row_name, sheet_name, worksheet_name)
                 
                 numeric_rows.append({
                     'index': index,
@@ -1503,19 +1525,116 @@ class SheetAnalyzer:
         
         return numeric_rows
 
-    def _find_component_rows(self, df: pd.DataFrame, summary_row_index: int, summary_row_name: str) -> List[Dict[str, Any]]:
+    def _find_component_rows(self, df: pd.DataFrame, summary_row_index: int, summary_row_name: str, sheet_name: str = None, worksheet_name: str = None) -> List[Dict[str, Any]]:
         """
-        Find component rows that likely make up a summary row
+        Find component rows by tracing formulas in Google Sheets cells
         
         Args:
             df: DataFrame to analyze
             summary_row_index: Index of the summary row
             summary_row_name: Name of the summary row
+            sheet_name: Name of the Google Sheet (for formula tracing)
+            worksheet_name: Name of the worksheet (for formula tracing)
             
         Returns:
             List of component row dictionaries
         """
         components = []
+        
+        # Try to get the actual formula from Google Sheets
+        if sheet_name and worksheet_name:
+            try:
+                # Get the formula for the summary row (excluding the first column which is the row name)
+                # Convert DataFrame index to Google Sheets row number (add 1 for header row)
+                sheet_row_number = summary_row_index + 2  # +1 for 0-based to 1-based, +1 for header row
+                
+                # Get formulas for all columns in the summary row (excluding first column)
+                formula_range = f"B{sheet_row_number}:Z{sheet_row_number}"
+                
+                print(f"🔍 Attempting formula tracing for {summary_row_name} at row {sheet_row_number}")
+                print(f"🔍 Formula range: {formula_range}")
+                
+                try:
+                    # Get the formulas using Google Sheets API with valueRenderOption=FORMULA
+                    # This gets the actual formulas instead of calculated values
+                    formulas = gc.open(sheet_name).worksheet(worksheet_name).get(formula_range, value_render_option='FORMULA')
+                    
+                    print(f"🔍 Raw formulas response: {formulas}")
+                    
+                    if formulas and len(formulas) > 0:
+                        # Parse formulas to find referenced cells
+                        referenced_rows = set()
+                        
+                        for row in formulas:
+                            for cell_formula in row:
+                                # Handle mixed data types - convert to string and check for formulas
+                                cell_str = str(cell_formula) if cell_formula is not None else ""
+                                if cell_str.startswith('='):
+                                    print(f"🔍 Found formula: {cell_str}")
+                                    # Extract cell references from formula
+                                    # Look for patterns like A1, B2, C3, etc.
+                                    import re
+                                    cell_refs = re.findall(r'[A-Z]+\d+', cell_str)
+                                    print(f"🔍 Extracted cell refs: {cell_refs}")
+                                    
+                                    for cell_ref in cell_refs:
+                                        # Convert cell reference to row number
+                                        row_match = re.search(r'[A-Z]+(\d+)', cell_ref)
+                                        if row_match:
+                                            ref_row = int(row_match.group(1))
+                                            # Convert to DataFrame index (subtract 1 for 0-based, subtract 1 for header)
+                                            df_row_index = ref_row - 2
+                                            print(f"🔍 Cell ref {cell_ref} -> row {ref_row} -> df index {df_row_index}")
+                                            if 0 <= df_row_index < len(df):
+                                                referenced_rows.add(df_row_index)
+                                                print(f"🔍 Added referenced row: {df_row_index}")
+                                            else:
+                                                print(f"🔍 Skipped row {df_row_index} (out of bounds)")
+                        
+                        # Add referenced rows as components
+                        for row_idx in referenced_rows:
+                            component_name = str(df.iloc[row_idx, 0])
+                            
+                            # Skip if it's another summary row
+                            if any(keyword in component_name.lower() for keyword in ['total', 'sum', 'net']):
+                                continue
+                            
+                            # Use the same financial value parsing logic
+                            def parse_financial_value(value):
+                                if pd.isna(value) or value == '':
+                                    return None
+                                value_str = str(value).strip()
+                                # Handle negative values in parentheses like "(21.0)" -> -21.0
+                                if value_str.startswith('(') and value_str.endswith(')'):
+                                    try:
+                                        return -float(value_str[1:-1])
+                                    except ValueError:
+                                        return None
+                                try:
+                                    return float(value_str)
+                                except ValueError:
+                                    return None
+                            
+                            component_values = pd.Series([parse_financial_value(val) for val in df.iloc[row_idx, 1:]]).dropna()
+                            
+                            if len(component_values) > 0 and component_values.abs().sum() > 0:
+                                components.append({
+                                    'index': row_idx,
+                                    'name': component_name,
+                                    'values': component_values.tolist()
+                                })
+                        
+                        if components:
+                            return components
+                            
+                except Exception as e:
+                    print(f"⚠️ Could not get formulas for {sheet_name}: {e}")
+                    
+            except Exception as e:
+                print(f"⚠️ Error tracing formulas: {e}")
+                
+        # Fallback to heuristic approach if formula tracing fails
+        print(f"📝 Using fallback heuristic approach for {summary_row_name}")
         
         # Look for rows above the summary row that might be components
         for i in range(summary_row_index - 1, max(0, summary_row_index - 10), -1):
@@ -1554,18 +1673,31 @@ class SheetAnalyzer:
                 # Check for logical relationships
                 is_component = False
                 
-                # Revenue components
-                if 'revenue' in summary_lower and ('revenue' in component_lower or 'sales' in component_lower):
+                # Look for semantic relationships between summary and component
+                summary_words = set(summary_lower.split())
+                component_words = set(component_lower.split())
+                
+                # Check for shared key terms
+                shared_terms = summary_words.intersection(component_words)
+                if len(shared_terms) > 0:
+                    # If they share key financial terms, likely related
+                    key_terms = {'revenue', 'sales', 'expense', 'cost', 'income', 'profit', 'loss', 'margin', 'gross', 'net', 'operating'}
+                    if any(term in shared_terms for term in key_terms):
+                        is_component = True
+                
+                # Check for hierarchical relationships (component is more specific than summary)
+                if not is_component:
+                    # If summary contains general terms and component contains specific terms
+                    general_terms = {'total', 'net', 'gross', 'operating', 'overall'}
+                    specific_terms = {'revenue', 'sales', 'expense', 'cost', 'returns', 'refunds', 'discounts', 'stream'}
+                    
+                    if any(term in summary_words for term in general_terms) and any(term in component_words for term in specific_terms):
+                        is_component = True
+                
+                # Special case for revenue streams
+                if not is_component and 'revenue' in summary_lower and 'stream' in component_lower:
                     is_component = True
-                # Expense components  
-                elif 'expense' in summary_lower and 'expense' in component_lower:
-                    is_component = True
-                # Cost components
-                elif 'cost' in summary_lower and 'cost' in component_lower:
-                    is_component = True
-                # Profit components
-                elif 'profit' in summary_lower and ('revenue' in component_lower or 'cost' in component_lower or 'expense' in component_lower):
-                    is_component = True
+
                 
                 if is_component:
                     components.append({
@@ -1576,7 +1708,7 @@ class SheetAnalyzer:
         
         return components
 
-    def _generate_html_report(self, sheet_name: str, worksheet_name: str, all_numeric_rows: List[Dict], commentaries: List[str], charts: List[str], chart_paths: List[str]) -> str:
+    def _generate_html_report(self, sheet_name: str, worksheet_name: str, all_numeric_rows: List[Dict], commentaries: List[str], charts: List[str], chart_paths: List[str], sheet_url: str = None) -> str:
         """Generate HTML report with embedded charts and commentary"""
         
         html_content = f"""<!DOCTYPE html>
@@ -1584,7 +1716,7 @@ class SheetAnalyzer:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Financial Analysis Report - {sheet_name}</title>
+    <title>Analysis of {worksheet_name} in {sheet_name}</title>
     <style>
         body {{ font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }}
         .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }}
@@ -1597,54 +1729,28 @@ class SheetAnalyzer:
         .chart-container img {{ max-width: 100%; height: auto; border: 1px solid #ddd; border-radius: 8px; }}
         .commentary {{ background: #fff3cd; padding: 15px; margin: 10px 0; border-radius: 4px; border-left: 4px solid #ffc107; }}
         .timestamp {{ color: #7f8c8d; font-size: 0.9em; text-align: center; margin-top: 30px; }}
-        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin: 20px 0; }}
-        .stat-card {{ background: #e8f4fd; padding: 15px; border-radius: 8px; text-align: center; }}
-        .stat-number {{ font-size: 2em; font-weight: bold; color: #2980b9; }}
-        .stat-label {{ color: #7f8c8d; font-size: 0.9em; }}
+        .sheet-link {{ color: #3498db; text-decoration: none; }}
+        .sheet-link:hover {{ text-decoration: underline; }}
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>📊 Financial Analysis Report</h1>
+        <h1>📊 Analysis of {worksheet_name} in {sheet_name}</h1>
         <div class="summary">
-            <h2>📋 Analysis Summary</h2>
-            <p><strong>Sheet:</strong> {sheet_name}</p>
-            <p><strong>Worksheet:</strong> {worksheet_name}</p>
             <p><strong>Analysis Date:</strong> {datetime.now().strftime("%B %d, %Y at %I:%M %p")}</p>
-        </div>
-        
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-number">{len(all_numeric_rows)}</div>
-                <div class="stat-label">Rows Analyzed</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{len(chart_paths)}</div>
-                <div class="stat-label">Charts Created</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{len([r for r in all_numeric_rows if r['is_summary']])}</div>
-                <div class="stat-label">Summary Rows</div>
-            </div>
-        </div>
-        
-        <h2>📈 Row Analysis</h2>"""
+            <p><strong>Source Sheet:</strong> <a href="{sheet_url or 'https://docs.google.com/spreadsheets/d/'}" class="sheet-link" target="_blank">{sheet_name}</a></p>
+        </div>"""
         
         for i, row_info in enumerate(all_numeric_rows):
             html_content += f"""
         <div class="metric">
-            <h3>{i+1}. {row_info['name']}</h3>
-            <p><strong>Type:</strong> {row_info['type']} | <strong>Total:</strong> {row_info['total']:.2f} | <strong>Average:</strong> {row_info['avg']:.2f}</p>"""
+            <h3>{i+1}. {row_info['name']}</h3>"""
             
-            if row_info['is_summary']:
-                html_content += f"""
-            <p><strong>Summary Row:</strong> Yes (with {len(row_info['component_rows'])} components)</p>"""
-            
-            # Add commentary
+            # Add commentary with metric type included
             if i < len(commentaries):
                 html_content += f"""
             <div class="commentary">
-                <strong>Analysis:</strong> {commentaries[i]}
+                <strong>Commentary:</strong> {commentaries[i]}
             </div>"""
             
             # Add chart if available (robust matching)
@@ -1653,7 +1759,8 @@ class SheetAnalyzer:
             sanitized_row_name = row_info['name'].replace(' ', '_').replace('/', '_')
             for chart_path in chart_paths:
                 chart_base = os.path.splitext(os.path.basename(chart_path))[0]
-                if chart_base.startswith(sanitized_row_name):
+                # Check if chart filename contains the sanitized row name (more flexible matching)
+                if sanitized_row_name in chart_base:
                     html_content += f"""
             <div class="chart-container">
                 <img src="../{chart_path}" alt="Chart for {row_info['name']}" />
@@ -1663,8 +1770,22 @@ class SheetAnalyzer:
             if not chart_found:
                 html_content += """
             <p><em>No chart available for this metric.</em></p>"""
+            
             html_content += """
         </div>"""
+        
+        # Debug: Print all chart paths
+        print(f"🔍 All chart paths for HTML report: {chart_paths}")
+        
+        html_content += f"""
+        <div class="timestamp">
+            <p>Report generated on {datetime.now().strftime("%B %d, %Y at %I:%M:%S %p")}</p>
+        </div>
+    </div>
+</body>
+</html>"""
+        
+        return html_content
         
         html_content += f"""
         
