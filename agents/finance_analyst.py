@@ -25,7 +25,6 @@ class FinanceAnalystAgent:
         (WorkspaceUtils.search_sheets_by_content, "search_sheets_by_content", "Search Google Sheets by content"),
         
         # Notes management
-        (WorkspaceUtils.create_notes, "create_notes", "Create a notes.md file in the drive folder for the agent to store information"),
         (WorkspaceUtils.read_notes, "read_notes", "Read the contents of notes.md file"),
         (WorkspaceUtils.update_notes, "update_notes", "Write content to a specific section of the notes.md file"),
         (WorkspaceUtils.list_drive_files, "list_drive_files", "List all files in the drive folder"),
@@ -42,11 +41,12 @@ class FinanceAnalystAgent:
         (SheetAnalyzer.read_all_worksheets, "read_all_worksheets", "Read all worksheets from a Google Sheet using structured analysis for each worksheet"),
         (SheetAnalyzer.analyze_dataframe, "analyze_dataframe", "Analyze DataFrame by identifying important metrics, generating commentary, and creating charts"),
 
-        
         # Research and document download 
-        (ResearchUtils.get_filings_from_company_website, "get_filings_from_company_website", "Search and download financial documents from a company's investor relations website based on criteria"),
+        (ResearchUtils.get_filings_from_company_website, "get_filings_from_company_website", "Search and download financial documents from a company's investor relations website. REQUIRES: company_name (string) AND search_criteria (dict with document_types list, optional keywords, max_documents, prioritize_latest)"),
         (ResearchUtils.list_downloaded_filings, "list_downloaded_filings", "List all downloaded financial filings in the drive folder"),
-    ]
+        
+        
+        ]
     
     @staticmethod
     def create_agent(
@@ -125,18 +125,13 @@ class FinanceAnalystAgent:
             - DO NOT ask for clarification when the document type is clear from the request
             - Automatically set reasonable defaults: max_documents=5, prioritize_latest=True
             - Use keywords to improve search relevance based on the request context
-            - IMPORTANT: ONLY use the registered tools (get_filings_from_company_website, list_downloaded_filings)
+            - IMPORTANT: ALWAYS provide BOTH company_name AND search_criteria parameters to get_filings_from_company_website
+            - search_criteria should be a dictionary with at least document_types (list) and optionally keywords, max_documents, prioritize_latest
+            - Example: {{"document_types": ["presentation"], "prioritize_latest": true}}
+            - ONLY use the registered tools (get_filings_from_company_website, list_downloaded_filings)
             - DO NOT try to execute browser automation code directly
             - DO NOT try to import or use Playwright, requests, or other libraries directly
             - All browser automation is handled internally by the registered tools
-
-            Note-Taking and Memory Management:
-            - ALWAYS create and maintain notes.md for tracking analysis sessions
-            - Store important findings, metrics, and insights in structured notes
-            - Use update_notes to add analysis results to specific sections
-            - Create sections for: Analysis History, Important Findings, To-Do Items, Key Metrics
-            - Maintain session continuity by reading previous notes before starting new analysis
-            - Document all significant discoveries and actionable insights
 
             Collaboration Features:
             - Share sheets and docs with team members
@@ -165,11 +160,9 @@ class FinanceAnalystAgent:
             - Workflow: Header Identification → Data Extraction → Metric Identification → Commentary → Charts → Notes Documentation
             
             Note-Taking Workflow:
-            - ALWAYS start by reading existing notes to understand previous analysis
-            - After each analysis, update notes with key findings and metrics
-            - Create structured sections: Analysis History, Important Findings, To-Do Items, Key Metrics
-            - Document specific values, trends, and insights discovered
-            - Use update_notes to maintain organized, timestamped records
+            - Always use read_notes before starting any analysis to consider user preferences
+            - Apply user preferences to tool calls and analysis
+            - Use update_notes to store user preferences in bullet points
             
             Document Creation Instructions:
             - When creating Google Docs with analysis results, ALWAYS use the detailed individual commentaries from the analysis

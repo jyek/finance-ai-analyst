@@ -1,6 +1,6 @@
 # [WIP] AI Finance Analyst
 
-An experimental AI finance analyst that runs in your terminal and works within Google Drive, Sheets and Docs alongside you. It can do budget vs. actual analysis, plotting charts to understand trends and anomalies, and identify financial insights.
+An AI finance analyst that runs in your terminal and works in Google Sheets and Docs alongside you.
 
 ## Features
 

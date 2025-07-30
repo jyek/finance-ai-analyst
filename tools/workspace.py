@@ -652,66 +652,6 @@ class WorkspaceUtils:
     # ============================================================================
     # LOCAL FILE MANAGEMENT FUNCTIONS
     # ============================================================================
-    
-    @staticmethod
-    def create_notes(
-        title: Annotated[str, "title for the notes file"] = "Agent Notes"
-    ) -> str:
-        """
-        Create a notes.md file in the drive folder for the agent to store information
-        
-        Args:
-            title: Title for the notes file
-            
-        Returns:
-            Success message with file details
-        """
-        
-        try:
-            # Ensure drive folder exists
-            drive_path = os.path.join(os.getcwd(), 'drive')
-            os.makedirs(drive_path, exist_ok=True)
-            
-            # Create notes.md file path
-            notes_file_path = os.path.join(drive_path, 'notes.md')
-            
-            # Check if file already exists
-            if os.path.exists(notes_file_path):
-                return f"✅ Notes file already exists at: {notes_file_path}"
-            
-            # Create the notes file with initial content
-            initial_content = f"""# {title}
-
-Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
-
-## Notes
-
-<!-- Add your notes here -->
-
-## Analysis History
-
-<!-- Track analysis sessions and findings -->
-
-## Important Findings
-
-<!-- Key insights and observations -->
-
-## To-Do Items
-
-<!-- Tasks and follow-ups -->
-
----
-*This file is automatically managed by the Finance AI Analyst agent.*
-"""
-            
-            with open(notes_file_path, 'w', encoding='utf-8') as f:
-                f.write(initial_content)
-            
-            return f"✅ Notes file created successfully!\n📄 File: {notes_file_path}\n📝 Title: {title}"
-            
-        except Exception as e:
-            return f"❌ Error creating notes file: {str(e)}"
-    
     @staticmethod
     def read_notes() -> str:
         """
@@ -741,15 +681,18 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
     
     @staticmethod
     def update_notes(
-        section: Annotated[str, "section to write to (e.g., 'Notes', 'Analysis History', 'Important Findings', 'To-Do Items')"],
+        section: Annotated[str, "section to write to (e.g., 'Notes', 'Analysis History', 'Important Findings', 'To-Do Items', 'User Preferences')"],
         content: Annotated[str, "content to add to the section"]
     ) -> str:
         """
-        Write content to a specific section of the notes.md file
+        Write content to a specific section of the notes.md file.
+        If the file doesn't exist, it will be created with all standard sections.
+        For User Preferences section, this replaces the entire section content.
+        For other sections, this appends content with a timestamp.
         
         Args:
             section: Section name to write to
-            content: Content to add
+            content: Content to add or replace
             
         Returns:
             Success message or error
@@ -760,37 +703,128 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             drive_path = os.path.join(os.getcwd(), 'drive')
             notes_file_path = os.path.join(drive_path, 'notes.md')
             
-            # Check if file exists
+            # Create file if it doesn't exist
             if not os.path.exists(notes_file_path):
-                return "❌ Notes file does not exist. Use create_notes_file() to create it first."
+                # Create the drive directory if it doesn't exist
+                os.makedirs(drive_path, exist_ok=True)
+                
+                # Create a basic notes file
+                basic_content = f"""# Finance AI Analyst Notes
+
+Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+## Notes
+
+<!-- Add your notes here -->
+
+## Analysis History
+
+<!-- Track analysis sessions and findings -->
+
+## Important Findings
+
+<!-- Key insights and observations -->
+
+## To-Do Items
+
+<!-- Tasks and follow-ups -->
+
+## User Preferences
+
+<!-- User preferences for analysis customization -->
+
+---
+*This file is automatically managed by the Finance AI Analyst agent.*
+"""
+                
+                with open(notes_file_path, 'w', encoding='utf-8') as f:
+                    f.write(basic_content)
+                
+                print(f"📝 Created new notes file: {notes_file_path}")
             
             # Read current content
             with open(notes_file_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+                content_lines = f.read()
             
-            # Find the section and add content
-            section_found = False
-            new_lines = []
-            
-            for line in lines:
-                new_lines.append(line)
+            # Check if section exists, and add it if it doesn't
+            if f"## {section}" not in content_lines:
+                # Add the missing section before the closing separator
+                if "---" in content_lines:
+                    # Insert before the separator
+                    parts = content_lines.split("---")
+                    new_content = parts[0].rstrip() + f"\n\n## {section}\n\n<!-- {section} content will be added here -->\n\n---" + parts[1]
+                else:
+                    # Add at the end
+                    new_content = content_lines.rstrip() + f"\n\n## {section}\n\n<!-- {section} content will be added here -->\n\n---\n*This file is automatically managed by the Finance AI Analyst agent.*"
                 
-                # Check if this is the target section
-                if line.strip().startswith(f"## {section}"):
-                    section_found = True
-                    # Add timestamp and content
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    new_lines.append(f"\n### {timestamp}\n")
-                    new_lines.append(f"{content}\n\n")
+                # Write the updated content back
+                with open(notes_file_path, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                
+                # Update content_lines for further processing
+                content_lines = new_content
             
-            if not section_found:
-                return f"❌ Section '{section}' not found in notes file. Available sections: Notes, Analysis History, Important Findings, To-Do Items"
+            # Handle User Preferences section differently (replace entire content)
+            if section == "User Preferences":
+                # Split content into sections
+                sections = content_lines.split("## ")
+                new_sections = []
+                
+                for i, section_content in enumerate(sections):
+                    if i == 0:  # Header content
+                        new_sections.append(section_content)
+                    else:
+                        # Check if this is the User Preferences section
+                        if section_content.startswith("User Preferences"):
+                            # Replace the entire User Preferences section
+                            lines = section_content.split('\n')
+                            new_section_lines = [lines[0]]  # Keep the "User Preferences" header
+                            new_section_lines.append("")  # Empty line after header
+                            new_section_lines.append(f"<!-- Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} -->")
+                            new_section_lines.append("")  # Empty line
+                            new_section_lines.append(content)
+                            new_section_lines.append("")  # Empty line
+                            new_section_lines.append("---")  # Separator
+                            new_section_lines.append("")  # Empty line
+                            
+                            new_sections.append("## " + '\n'.join(new_section_lines))
+                        else:
+                            new_sections.append("## " + section_content)
+                
+                # Reconstruct the file content
+                new_content = ''.join(new_sections)
+                
+                # Write back to file
+                with open(notes_file_path, 'w', encoding='utf-8') as f:
+                    f.write(new_content)
+                
+                return f"✅ User Preferences updated successfully!\n\n📋 Updated Preferences:\n{content}"
             
-            # Write back to file
-            with open(notes_file_path, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-            
-            return f"✅ Content written to '{section}' section successfully!\n📝 Added: {content[:100]}{'...' if len(content) > 100 else ''}"
+            else:
+                # For other sections, append content with timestamp
+                lines = content_lines.split('\n')
+                new_lines = []
+                section_found = False
+                
+                for line in lines:
+                    new_lines.append(line)
+                    
+                    # Check if this is the target section
+                    if line.strip() == f"## {section}":
+                        section_found = True
+                        # Add timestamp and content
+                        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        new_lines.append(f"\n### {timestamp}\n")
+                        new_lines.append(f"{content}\n\n")
+                
+                if not section_found:
+                    return f"❌ Section '{section}' not found in notes file."
+                
+                # Write back to file
+                with open(notes_file_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(new_lines))
+                
+                return f"✅ Content written to '{section}' section successfully!\n📝 Added: {content[:100]}{'...' if len(content) > 100 else ''}"
             
         except Exception as e:
             return f"❌ Error writing to notes: {str(e)}"
@@ -911,4 +945,6 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return result
             
         except Exception as e:
-            return f"❌ Error saving dataframe: {str(e)}" 
+            return f"❌ Error saving dataframe: {str(e)}"
+
+ 

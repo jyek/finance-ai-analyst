@@ -71,8 +71,8 @@ class ResearchUtils:
             })
         
         try:
-            # Step 1: Find the official company website
-            print(f"🔍 Step 1: Finding {company_name}'s official website...")
+            # Step 1: Find the official company website (for domain validation)
+            print(f"🔍 Step 1: Finding {company_name}'s official website for domain validation...")
             official_site = ResearchUtils._find_official_website(company_name)
             
             if not official_site:
@@ -82,34 +82,52 @@ class ResearchUtils:
                 })
             
             print(f"✅ Found official website: {official_site}")
+            official_domain = urlparse(official_site).netloc
             
-            # Step 2: Find the investor relations section
-            print(f"🔍 Step 2: Looking for investor relations section...")
-            ir_section = ResearchUtils._find_investor_relations_section(official_site, company_name)
+            # Step 2: Directly search for investor relations websites
+            print(f"🔍 Step 2: Searching for investor relations websites...")
+            ir_sites = ResearchUtils._find_investor_relations_websites(company_name, official_domain)
             
-            if not ir_section:
-                return json.dumps({
-                    "error": f"Could not find investor relations section for {company_name}",
-                    "company": company_name,
-                    "official_website": official_site
-                })
+            if not ir_sites:
+                print(f"⚠️ No investor relations websites found, trying official site...")
+                ir_section = ResearchUtils._find_investor_relations_section(official_site, company_name)
+                if ir_section:
+                    ir_sites = [ir_section]
+                else:
+                    ir_sites = [official_site]
             
-            print(f"✅ Found investor relations section: {ir_section}")
+            print(f"✅ Found {len(ir_sites)} investor relations sites")
             
-            # Step 3: Search for financial documents in the IR section
+            # Step 3: Search for financial documents across all IR sites
             print(f"🔍 Step 3: Searching for financial documents...")
-            documents = ResearchUtils._search_financial_documents(ir_section, company_name)
+            all_documents = []
+            
+            for ir_site in ir_sites:
+                print(f"   🔍 Searching: {ir_site}")
+                documents = ResearchUtils._search_financial_documents(ir_site, company_name)
+                all_documents.extend(documents)
+            
+            # Remove duplicates based on URL
+            seen_urls = set()
+            unique_documents = []
+            for doc in all_documents:
+                if doc["url"] not in seen_urls:
+                    seen_urls.add(doc["url"])
+                    unique_documents.append(doc)
             
             result = {
                 "company": company_name,
                 "official_website": official_site,
-                "investor_relations_page": {
-                    "url": ir_section,
-                    "title": f"{company_name} Investor Relations",
-                    "description": f"Investor relations section found on {official_site}"
-                },
-                "documents_found": documents,
-                "search_strategy": "3-step approach: official site → IR section → documents"
+                "investor_relations_pages": [
+                    {
+                        "url": site,
+                        "title": f"{company_name} Investor Relations",
+                        "description": f"Investor relations site for {company_name}"
+                    }
+                    for site in ir_sites
+                ],
+                "documents_found": unique_documents,
+                "search_strategy": "Direct IR website search with domain validation"
             }
             
             return json.dumps(result, indent=2)
@@ -130,51 +148,118 @@ class ResearchUtils:
             # Clean company name for domain search
             clean_name = company_name.lower().replace(" ", "").replace(".", "").replace("inc", "").replace("ltd", "").replace("llc", "").replace("&", "").replace("and", "")
             
-            # Search for the company's official website
+            # Search for the company's official website with more specific queries
             with DDGS() as ddgs:
-                search_results = list(ddgs.text(f'"{company_name}" official website', max_results=5))
-            
-            # If that doesn't work well, try searching for the company domain directly
-            if not search_results or all('bing.com/aclick' in result.get('href', '') for result in search_results):
-                clean_name = company_name.lower().replace(" ", "").replace(".", "").replace("inc", "").replace("ltd", "").replace("llc", "").replace("&", "").replace("and", "")
-                potential_domains = [
-                    f"https://www.{clean_name}.com",
-                    f"https://{clean_name}.com",
-                    f"https://www.{clean_name}.org",
-                    f"https://{clean_name}.org"
+                # Try multiple search strategies with more specific queries
+                search_queries = [
+                    f'"{company_name}" official website',
+                    f'"{company_name}" company website',
+                    f'"{company_name}" corporate website',
+                    f'site:{clean_name}.com',
+                    f'{company_name} investor relations'
                 ]
                 
-                # Test if these domains exist
-                for domain in potential_domains:
+                all_results = []
+                for query in search_queries:
                     try:
-                        response = requests.head(domain, timeout=5, allow_redirects=True)
-                        if response.status_code == 200:
-                            return domain
+                        results = list(ddgs.text(query, max_results=3))
+                        all_results.extend(results)
                     except:
                         continue
             
-            if not search_results:
-                return None
-            
-            # Look for the most likely official website
-            for result in search_results:
+            # Filter and prioritize results with stricter criteria
+            filtered_results = []
+            for result in all_results:
                 url = result.get('href', '')
                 title = result.get('title', '').lower()
                 
-                # Filter out ads, affiliate links, and non-official sites
-                if any(term in url for term in ['bing.com/aclick', 'googleadservices', 'doubleclick', 'affiliate', 'tracking', 'utm_', 'ref=']):
+                # Skip obvious non-official sites
+                if any(term in url.lower() for term in [
+                    'bing.com/aclick', 'googleadservices', 'doubleclick', 'affiliate', 'tracking', 'utm_', 'ref=',
+                    'wikipedia.org', 'linkedin.com', 'twitter.com', 'facebook.com', 'youtube.com', 'instagram.com',
+                    'finance.yahoo.com', 'marketwatch.com', 'bloomberg.com', 'reuters.com', 'cnbc.com',
+                    'seekingalpha.com', 'fool.com', 'investing.com', 'tradingview.com', 'yahoo.com/quote',
+                    'google.com', 'bing.com', 'news.', 'blog.', 'forum.', 'reddit.com', 'energy.gov',
+                    'harii01.com', 'office.com', 'github.io', 'github.com', 'wordpress.com', 'wix.com',
+                    'squarespace.com', 'weebly.com', 'tumblr.com', 'medium.com', 'substack.com'
+                ]):
+                    continue
+                
+                # Skip social media and news sites
+                if any(term in url.lower() for term in ['wikipedia', 'linkedin', 'twitter', 'facebook', 'youtube', 'instagram', 'news', 'blog', 'forum', 'reddit']):
+                    continue
+                
+                # Skip financial data sites (they're not official company sites)
+                if any(term in url.lower() for term in ['finance.yahoo', 'marketwatch', 'bloomberg', 'reuters', 'cnbc', 'seekingalpha', 'fool.com', 'investing.com', 'tradingview']):
+                    continue
+                
+                # Skip government and educational sites
+                if any(term in url.lower() for term in ['.gov', '.edu', 'energy.gov', 'office.com']):
                     continue
                 
                 # Check if this looks like an official company website
-                if any(term in title for term in [company_name.lower(), clean_name]) and \
-                   not any(term in url for term in ['wikipedia', 'linkedin', 'twitter', 'facebook', 'youtube', 'news', 'blog', 'bing.com', 'google.com']):
-                    return url
+                company_terms = [company_name.lower(), clean_name]
+                domain = urlparse(url).netloc.lower()
+                
+                # Very high priority: exact company name in domain (e.g., apple.com for Apple Inc)
+                if any(term in domain for term in company_terms):
+                    filtered_results.append((result, 20))  # Highest priority
+                # High priority: company name in title and reasonable domain
+                elif any(term in title for term in company_terms) and domain.endswith('.com'):
+                    filtered_results.append((result, 15))  # Very high priority
+                # Medium priority: company name in URL path
+                elif any(term in url.lower() for term in company_terms):
+                    filtered_results.append((result, 10))  # High priority
+                # Lower priority: just a .com domain (but not from known problematic sites)
+                elif domain.endswith('.com') and not any(term in domain for term in ['office', 'energy', 'harii01', 'github', 'wordpress', 'wix', 'squarespace', 'weebly']):
+                    filtered_results.append((result, 3))   # Low priority
+                else:
+                    filtered_results.append((result, 1))   # Very low priority
             
-            # If no clear match, return the first result that's not a social media/news site or ad
-            for result in search_results:
-                url = result.get('href', '')
-                if not any(term in url for term in ['wikipedia', 'linkedin', 'twitter', 'facebook', 'youtube', 'news', 'blog', 'bing.com', 'google.com', 'bing.com/aclick', 'googleadservices', 'doubleclick', 'affiliate', 'tracking', 'utm_', 'ref=']):
-                    return url
+            # Sort by priority and return the best result
+            filtered_results.sort(key=lambda x: x[1], reverse=True)
+            
+            if filtered_results:
+                best_result = filtered_results[0][0].get('href', '')
+                print(f"🔍 Selected website: {best_result} (priority: {filtered_results[0][1]})")
+                return best_result
+            
+            # Fallback: Try common domain patterns for well-known companies
+            company_domains = {
+                'apple inc': 'https://www.apple.com',
+                'microsoft': 'https://www.microsoft.com',
+                'tesla': 'https://www.tesla.com',
+                'wise': 'https://wise.com',
+                'revolut': 'https://www.revolut.com',
+                'google': 'https://www.google.com',
+                'amazon': 'https://www.amazon.com',
+                'meta': 'https://www.meta.com',
+                'netflix': 'https://www.netflix.com'
+            }
+            
+            company_lower = company_name.lower()
+            for known_company, known_domain in company_domains.items():
+                if known_company in company_lower or company_lower in known_company:
+                    print(f"🔍 Using known domain for {company_name}: {known_domain}")
+                    return known_domain
+            
+            # Final fallback: Try common domain patterns
+            potential_domains = [
+                f"https://www.{clean_name}.com",
+                f"https://{clean_name}.com",
+                f"https://www.{clean_name}.org",
+                f"https://{clean_name}.org"
+            ]
+            
+            # Test if these domains exist
+            for domain in potential_domains:
+                try:
+                    response = requests.head(domain, timeout=5, allow_redirects=True)
+                    if response.status_code == 200:
+                        print(f"🔍 Found working domain: {domain}")
+                        return domain
+                except:
+                    continue
             
             return None
             
@@ -182,6 +267,117 @@ class ResearchUtils:
             print(f"⚠️ Error finding official website: {e}")
             return None
     
+    @staticmethod
+    def _find_investor_relations_websites(company_name: str, official_domain: str) -> List[str]:
+        """Step 2: Directly search for investor relations websites"""
+        if not DUCKDUCKGO_AVAILABLE:
+            return []
+        
+        try:
+            # Clean company name for search
+            clean_name = company_name.lower().replace(" ", "").replace(".", "").replace("inc", "").replace("ltd", "").replace("llc", "").replace("&", "").replace("and", "")
+            
+            # Search for investor relations websites with multiple strategies
+            with DDGS() as ddgs:
+                search_queries = [
+                    f'"{company_name}" investor relations',
+                    f'"{company_name}" investors',
+                    f'"{company_name}" shareholder relations',
+                    f'"{company_name}" financial reports',
+                    f'"{company_name}" annual report',
+                    f'"{company_name}" quarterly results',
+                    f'"{company_name}" earnings releases',
+                    f'site:{official_domain} investor relations',
+                    f'site:{official_domain} investors',
+                    f'site:{official_domain} ir',
+                    f'site:{official_domain} shareholders',
+                    f'site:{official_domain} reports-and-results',
+                    f'site:{official_domain} owners',
+                    f'{company_name} owners',
+                    f'{company_name} reports and results'
+                ]
+                
+                all_results = []
+                for query in search_queries:
+                    try:
+                        results = list(ddgs.text(query, max_results=5))
+                        all_results.extend(results)
+                    except:
+                        continue
+            
+            # Filter and prioritize results
+            filtered_results = []
+            for result in all_results:
+                url = result.get('href', '')
+                title = result.get('title', '').lower()
+                
+                # Skip obvious non-IR sites
+                if any(term in url.lower() for term in [
+                    'bing.com/aclick', 'googleadservices', 'doubleclick', 'affiliate', 'tracking', 'utm_', 'ref=',
+                    'wikipedia.org', 'linkedin.com', 'twitter.com', 'facebook.com', 'youtube.com', 'instagram.com',
+                    'finance.yahoo.com', 'marketwatch.com', 'bloomberg.com', 'reuters.com', 'cnbc.com',
+                    'seekingalpha.com', 'fool.com', 'investing.com', 'tradingview.com', 'yahoo.com/quote',
+                    'google.com', 'bing.com', 'news.', 'blog.', 'forum.', 'reddit.com'
+                ]):
+                    continue
+                
+                # Check if this is likely an IR page
+                ir_keywords = ['investor relations', 'investors', 'ir', 'shareholder', 'financial reports', 'sec filings', 'earnings', 'quarterly results', 'annual report', 'owners', 'reports and results']
+                
+                # Check domain validation - must be from official domain or closely related
+                result_domain = urlparse(url).netloc.lower()
+                official_domain_lower = official_domain.lower()
+                
+                # Accept exact domain match or subdomain
+                if result_domain == official_domain_lower or result_domain.endswith('.' + official_domain_lower):
+                    domain_score = 20
+                # Accept similar domains (e.g., wise.com for wise.com/owners/)
+                elif any(part in result_domain for part in official_domain_lower.split('.')):
+                    domain_score = 15
+                else:
+                    domain_score = 0
+                
+                # Check for IR keywords in URL and title
+                ir_score = 0
+                if any(keyword in url.lower() for keyword in ir_keywords):
+                    ir_score += 10
+                if any(keyword in title for keyword in ir_keywords):
+                    ir_score += 8
+                
+                # Check for company name in title
+                company_score = 0
+                company_terms = [company_name.lower(), clean_name]
+                if any(term in title for term in company_terms):
+                    company_score += 5
+                
+                total_score = domain_score + ir_score + company_score
+                
+                if total_score > 0:
+                    filtered_results.append((url, total_score))
+            
+            # Sort by score and return unique URLs
+            filtered_results.sort(key=lambda x: x[1], reverse=True)
+            
+            # Return unique URLs, prioritizing higher scores
+            seen_urls = set()
+            unique_results = []
+            for url, score in filtered_results:
+                # Normalize URL to avoid duplicates
+                normalized_url = url.rstrip('/')
+                if normalized_url not in seen_urls:
+                    seen_urls.add(normalized_url)
+                    unique_results.append(normalized_url)
+            
+            print(f"🔍 Found {len(unique_results)} potential IR sites:")
+            for i, url in enumerate(unique_results[:3]):  # Show top 3
+                print(f"   {i+1}. {url}")
+            
+            return unique_results[:5]  # Return top 5 results
+            
+        except Exception as e:
+            print(f"⚠️ Error finding investor relations websites: {e}")
+            return []
+
     @staticmethod
     def _find_investor_relations_section(official_site: str, company_name: str) -> Optional[str]:
         """Step 2: Find the investor relations section on the official website"""
@@ -197,25 +393,35 @@ class ResearchUtils:
                 page = context.new_page()
                 
                 # Navigate to the official website
-                page.goto(official_site, wait_until='networkidle', timeout=30000)
-                page.wait_for_timeout(2000)
+                try:
+                    page.goto(official_site, wait_until='networkidle', timeout=30000)
+                    page.wait_for_timeout(2000)
+                except Exception as e:
+                    print(f"⚠️ Error loading {official_site}: {e}")
+                    browser.close()
+                    return None
                 
-                # Look for investor relations links
-                ir_keywords = ['investor relations', 'investors', 'ir', 'shareholder', 'financial reports', 'sec filings']
+                # Look for investor relations links with more specific targeting
+                ir_keywords = ['investor relations', 'investors', 'ir', 'shareholder', 'financial reports', 'sec filings', 'earnings', 'quarterly results']
                 
-                # Try to find IR links in navigation or main content
-                for keyword in ir_keywords:
+                # First, try to find IR links in navigation menus
+                nav_selectors = [
+                    'nav a', 'header a', '.navigation a', '.nav a', '.menu a', '.header a',
+                    '#nav a', '#navigation a', '#menu a', '#header a',
+                    '[role="navigation"] a', '[class*="nav"] a', '[class*="menu"] a'
+                ]
+                
+                for selector in nav_selectors:
                     try:
-                        # Look for links containing the keyword
-                        links = page.query_selector_all(f'a[href*="{keyword}"]')
-                        if not links:
-                            links = page.query_selector_all(f'a:has-text("{keyword}")')
+                        links = page.query_selector_all(selector)
                         
                         for link in links:
                             href = link.get_attribute('href')
-                            if href:
-                                # Filter out affiliate/tracking links
-                                if any(term in href for term in ['get.revolut.com', 'af_', 'utm_', 'ref=', 'tracking', 'affiliate']):
+                            text = link.inner_text().lower()
+                            
+                            if href and any(keyword in text for keyword in ir_keywords):
+                                # Filter out affiliate/tracking links and product pages
+                                if any(term in href for term in ['get.revolut.com', 'af_', 'utm_', 'ref=', 'tracking', 'affiliate', 'airpods', 'iphone', 'macbook', 'ipad']):
                                     continue
                                 
                                 # Make URL absolute
@@ -227,15 +433,15 @@ class ResearchUtils:
                                     ir_url = urljoin(official_site, href)
                                 
                                 # Verify it's likely an IR page and not an affiliate link
-                                if any(term in ir_url.lower() for term in ir_keywords) and \
-                                   not any(term in ir_url.lower() for term in ['get.revolut.com', 'af_', 'utm_', 'ref=', 'tracking', 'affiliate']) and \
-                                   urlparse(ir_url).netloc == urlparse(official_site).netloc:
-                                    browser.close()
-                                    return ir_url
-                    except:
+                                if urlparse(ir_url).netloc == urlparse(official_site).netloc:
+                                    # Additional validation: check if the URL contains IR-related terms
+                                    if any(term in ir_url.lower() for term in ir_keywords):
+                                        browser.close()
+                                        return ir_url
+                    except Exception as e:
                         continue
                 
-                # If no IR links found, try common IR URL patterns
+                # If no IR links found in navigation, try common IR URL patterns
                 common_ir_paths = [
                     '/investor-relations',
                     '/investors',
@@ -252,20 +458,76 @@ class ResearchUtils:
                     '/reports',
                     '/financials',
                     '/about/investors',
-                    '/about/investor-relations'
+                    '/about/investor-relations',
+                    '/corporate/investors',
+                    '/corporate/investor-relations',
+                    '/company/investors',
+                    '/company/investor-relations'
                 ]
                 
                 for path in common_ir_paths:
                     try:
                         test_url = urljoin(official_site, path)
+                        
                         # Ensure we stay on the same domain
                         if urlparse(test_url).netloc == urlparse(official_site).netloc:
-                            response = page.goto(test_url, wait_until='networkidle', timeout=10000)
-                            if response and response.status == 200:
-                                browser.close()
-                                return test_url
-                    except:
+                            # Try to load the page with more lenient settings
+                            try:
+                                response = page.goto(test_url, wait_until='domcontentloaded', timeout=15000)
+                                if response and response.status < 400:  # Accept redirects and success codes
+                                    # Verify this is actually an IR page by checking content
+                                    page_content = page.content().lower()
+                                    page_title = page.title().lower()
+                                    
+                                    # Check for IR-related content in both page content and title
+                                    if any(keyword in page_content for keyword in ir_keywords) or any(keyword in page_title for keyword in ir_keywords):
+                                        # Additional check: make sure it's not a product page
+                                        if not any(term in page_content for term in ['buy now', 'shop', 'store', 'product', 'airpods', 'iphone', 'macbook']):
+                                            browser.close()
+                                            return test_url
+                            except:
+                                # If the page fails to load, try a HEAD request to check if it exists
+                                try:
+                                    import requests
+                                    head_response = requests.head(test_url, timeout=5, allow_redirects=True)
+                                    if head_response.status_code < 400:
+                                        browser.close()
+                                        return test_url
+                                except:
+                                    continue
+                    except Exception as e:
                         continue
+                
+                # Last resort: search for any link containing IR keywords
+                try:
+                    for keyword in ir_keywords:
+                        links = page.query_selector_all(f'a[href*="{keyword}"]')
+                        if not links:
+                            links = page.query_selector_all(f'a:has-text("{keyword}")')
+                        
+                        for link in links:
+                            href = link.get_attribute('href')
+                            if href:
+                                # Filter out affiliate/tracking links and product pages
+                                if any(term in href for term in ['get.revolut.com', 'af_', 'utm_', 'ref=', 'tracking', 'affiliate', 'airpods', 'iphone', 'macbook', 'ipad']):
+                                    continue
+                                
+                                # Make URL absolute
+                                if href.startswith('/'):
+                                    ir_url = urljoin(official_site, href)
+                                elif href.startswith('http'):
+                                    ir_url = href
+                                else:
+                                    ir_url = urljoin(official_site, href)
+                                
+                                # Verify it's likely an IR page and not an affiliate link
+                                if any(term in ir_url.lower() for term in ir_keywords) and \
+                                   not any(term in ir_url.lower() for term in ['get.revolut.com', 'af_', 'utm_', 'ref=', 'tracking', 'affiliate']) and \
+                                   urlparse(ir_url).netloc == urlparse(official_site).netloc:
+                                    browser.close()
+                                    return ir_url
+                except:
+                    pass
                 
                 browser.close()
                 return None
@@ -615,30 +877,41 @@ class ResearchUtils:
     @staticmethod
     def get_filings_from_company_website(
         company_name: Annotated[str, "name of the company"],
-        search_criteria: Annotated[Dict[str, Any], "search criteria including document_types, keywords, max_documents, etc."]
+        search_criteria: Annotated[Dict[str, Any], "search criteria including document_types, keywords, max_documents, etc."] = None
     ) -> str:
         """
         Search for and download specific documents based on agent's criteria.
         
         Args:
             company_name: Name of the company
-            search_criteria: Dictionary with search criteria:
-                - document_types: List of document types to look for
-                - keywords: List of keywords to search for in titles
-                - max_documents: Maximum number of documents to download
-                - prioritize_latest: Whether to prioritize recent documents
-                - description: Agent's description of what they're looking for
+            search_criteria: Dictionary with search criteria (optional, will use defaults if not provided):
+                - document_types: List of document types to look for (default: ["annual_report", "presentation", "filing"])
+                - keywords: List of keywords to search for in titles (default: [])
+                - max_documents: Maximum number of documents to download (default: 5)
+                - prioritize_latest: Whether to prioritize recent documents (default: True)
+                - description: Agent's description of what they're looking for (default: "")
                 
         Returns:
             JSON string with search and download results
         """
         try:
+            # Provide sensible defaults if search_criteria is not provided
+            if search_criteria is None:
+                search_criteria = {
+                    "document_types": ["annual_report", "presentation", "filing"],
+                    "keywords": [],
+                    "max_documents": 5,
+                    "prioritize_latest": True,
+                    "description": f"General financial documents for {company_name}"
+                }
+                print(f"⚠️ No search criteria provided, using defaults for {company_name}")
+            
             # Extract search criteria (handle both singular and plural forms)
             document_types = search_criteria.get('document_types', search_criteria.get('document_type', ['annual_report', 'presentation', 'filing']))
             keywords = search_criteria.get('keywords', [])
             max_documents = search_criteria.get('max_documents', 5)
             prioritize_latest = search_criteria.get('prioritize_latest', True)
-            description = search_criteria.get('description', '')
+            description = search_criteria.get('description', f'Financial documents for {company_name}')
             
             print(f"🔍 Searching for documents matching criteria: {description}")
             print(f"   Document types: {document_types}")
