@@ -1,14 +1,18 @@
-# [WIP] AI Finance Analyst
+# [WIP] AI FP&A Analyst
 
-An AI finance analyst that runs in your terminal and works in Google Sheets and Docs alongside you.
+An open-source AI FP&A analyst that runs in your terminal and works with your file system and Google Sheets. It automates financial analysis, builds charts, and writes commentary directly into your docs without requiring new software, logins, or rigid dashboards. 
+
+Designed to be lightweight, flexible, and composable, this agent fits into the tools you already use. No black-box SaaS, no vendor lock-in, just AI that works where finance work happens.
 
 ## Features
 
-- Find and download annual reports, earnings releases, presentations from a company's websites
-- Pull public company financial data from Yahoo Finance into Google Sheets
-- Read sheets and docs from your Google Drive
-- Analyze income statements and provide create commentary and charts in a report
-- Conduct benchmarking analysis
+- ✔️ Find and download annual reports, earnings releases, presentations from a company websites
+- ✔️ Pull public company financial data from Yahoo Finance into Google Sheets
+- ✔️ Read sheets from your Google Drive
+- ✔️ Analyze income statements and provide create commentary and charts in a report
+- 🚧 Customised dashboards
+- 🚧 Pull financials from your ERP or data warehouse
+- 🚧 Conduct benchmarking analysis
 
 ## Installation
 
@@ -45,6 +49,10 @@ cp config.json.example config.json
    - Run `python app.py` - it will open a browser for Google authentication
    - Grant permissions to access your Google Workspace
    - Authentication token is saved locally in `token.pickle` for future use
+
+4. **External Connectors Setup (Optional)**
+   - For Xero integration, add credentials to `config.json` and run `python setup_xero_oauth.py`
+   - See `connectors/README.md` for detailed setup instructions
 
 ## Run in Terminal
 

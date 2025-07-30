@@ -13,5 +13,10 @@
   },
   "LLM_MODEL": "gpt-4",
   "LLM_TEMPERATURE": 0.1,
-  "LLM_TIMEOUT": 120
+  "LLM_TIMEOUT": 120,
+  "xero": {
+    "client_id": "your-xero-client-id",
+    "client_secret": "your-xero-client-secret",
+    "redirect_uri": "http://localhost:8080/callback"
+  }
 } 
