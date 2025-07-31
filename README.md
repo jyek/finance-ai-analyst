@@ -1,8 +1,8 @@
 # [WIP] AI FP&A Analyst
 
-An open-source AI FP&A analyst that runs in your terminal and works with your file system and Google Sheets. It automates financial analysis, builds charts, and writes commentary directly into your docs without requiring new software, logins, or rigid dashboards. 
+An AI native FP&A analyst that runs in your terminal and works with your file system and Google Sheets. It automates financial analysis, builds charts, and writes commentary.
 
-Designed to be lightweight, flexible, and composable, this agent fits into the tools you already use. No black-box SaaS, no vendor lock-in, just AI that works where finance work happens.
+Designed to be lightweight, flexible, and composable, this agent fits into the tools you already use. No clunky FP&A software, no vendor lock-in, just AI that works where finance work happens.
 
 ## Features
 

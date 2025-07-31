@@ -830,31 +830,31 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return f"❌ Error writing to notes: {str(e)}"
     
     @staticmethod
-    def list_drive_files() -> str:
+    def list_files() -> str:
         """
-        List all files in the drive folder
+        List all files in the files folder
         
         Returns:
-            List of files in the drive folder
+            List of files in the files folder
         """
         
         try:
-            # Get drive folder path
-            drive_path = os.path.join(os.getcwd(), 'drive')
+            # Get files folder path
+            files_path = os.path.join(os.getcwd(), 'files')
             
-            # Check if drive folder exists
-            if not os.path.exists(drive_path):
-                return "❌ Drive folder does not exist."
+            # Check if files folder exists
+            if not os.path.exists(files_path):
+                return "❌ Files folder does not exist."
             
             # List files
-            files = os.listdir(drive_path)
+            files = os.listdir(files_path)
             
             if not files:
-                return "📁 Drive folder is empty."
+                return "📁 Files folder is empty."
             
-            result = "📁 Files in drive folder:\n"
+            result = "📁 Files in files folder:\n"
             for file in files:
-                file_path = os.path.join(drive_path, file)
+                file_path = os.path.join(files_path, file)
                 if os.path.isfile(file_path):
                     size = os.path.getsize(file_path)
                     modified = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime('%Y-%m-%d %H:%M:%S')
@@ -865,16 +865,16 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             return result
             
         except Exception as e:
-            return f"❌ Error listing drive files: {str(e)}"
+            return f"❌ Error listing files: {str(e)}"
     
     @staticmethod
-    def save_dataframe_to_drive(
+    def save_dataframe(
         dataframe_name: Annotated[str, "name for the saved dataframe file"],
         dataframe_data: Annotated[str, "dataframe data in CSV format or JSON format"],
         file_format: Annotated[str, "format to save as: 'csv' or 'json'"] = "csv"
     ) -> str:
         """
-        Save a dataframe to the drive folder
+        Save a dataframe to the files folder
         
         Args:
             dataframe_name: Name for the saved dataframe file
@@ -889,15 +889,15 @@ Created on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             import pandas as pd
             import json
             
-            # Ensure drive folder exists
-            drive_path = os.path.join(os.getcwd(), 'drive')
-            os.makedirs(drive_path, exist_ok=True)
+            # Ensure files folder exists
+            files_path = os.path.join(os.getcwd(), 'files')
+            os.makedirs(files_path, exist_ok=True)
             
             # Generate filename
             if not dataframe_name.endswith(f'.{file_format}'):
                 dataframe_name = f"{dataframe_name}.{file_format}"
             
-            file_path = os.path.join(drive_path, dataframe_name)
+            file_path = os.path.join(files_path, dataframe_name)
             
             # Check if file already exists
             if os.path.exists(file_path):

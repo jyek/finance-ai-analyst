@@ -37,39 +37,82 @@ def init_google_sheets(func):
     def wrapper(*args, **kwargs):
         global _gc_client, _gc_initialized
         
-        # Only initialize once
-        if not _gc_initialized:
-            # Try to get OAuth credentials from config or environment variable
-            oauth_credentials_json = None
-            
-            # First try to get from config
-            try:
-                from config import get_config
-                config = get_config("config.json")  # Explicitly load config file
-                oauth_credentials_json = config.google_oauth_credentials_json
-            except:
-                pass
-            
-            # Fall back to environment variable
-            if not oauth_credentials_json:
-                oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
-            
-            if oauth_credentials_json:
-                # Use OAuth2 authentication
-                print("🔐 Using Google OAuth2 authentication...")
-                creds = get_oauth_credentials_from_json(oauth_credentials_json)
-            else:
-                print("❌ Please add GOOGLE_OAUTH_CREDENTIALS_JSON to your environment variables or config file.")
-                return None
-            
-            if creds:
-                # Authorize the client
-                _gc_client = gspread.authorize(creds)
+        # Check if FinanceAnalystAgent has pre-initialized credentials
+        try:
+            from agents.finance_analyst import FinanceAnalystAgent
+            if FinanceAnalystAgent._oauth_creds is not None and FinanceAnalystAgent._gc is not None:
+                # Use pre-initialized credentials from FinanceAnalystAgent
+                _gc_client = FinanceAnalystAgent._gc
                 _gc_initialized = True
-                print("✅ Google Sheets client initialized")
+                print("✅ Using pre-initialized Google Sheets client from FinanceAnalystAgent")
             else:
-                print("❌ Failed to initialize Google Sheets client")
-                return None
+                # Initialize normally if no pre-initialized credentials
+                if not _gc_initialized:
+                    # Try to get OAuth credentials from config or environment variable
+                    oauth_credentials_json = None
+                    
+                    # First try to get from config
+                    try:
+                        from config import get_config
+                        config = get_config("config.json")  # Explicitly load config file
+                        oauth_credentials_json = config.google_oauth_credentials_json
+                    except:
+                        pass
+                    
+                    # Fall back to environment variable
+                    if not oauth_credentials_json:
+                        oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+                    
+                    if oauth_credentials_json:
+                        # Use OAuth2 authentication
+                        print("🔐 Using Google OAuth2 authentication...")
+                        creds = get_oauth_credentials_from_json(oauth_credentials_json)
+                    else:
+                        print("❌ Please add GOOGLE_OAUTH_CREDENTIALS_JSON to your environment variables or config file.")
+                        return None
+                    
+                    if creds:
+                        # Authorize the client
+                        _gc_client = gspread.authorize(creds)
+                        _gc_initialized = True
+                        print("✅ Google Sheets client initialized")
+                    else:
+                        print("❌ Failed to initialize Google Sheets client")
+                        return None
+        except ImportError:
+            # If FinanceAnalystAgent is not available, initialize normally
+            if not _gc_initialized:
+                # Try to get OAuth credentials from config or environment variable
+                oauth_credentials_json = None
+                
+                # First try to get from config
+                try:
+                    from config import get_config
+                    config = get_config("config.json")  # Explicitly load config file
+                    oauth_credentials_json = config.google_oauth_credentials_json
+                except:
+                    pass
+                
+                # Fall back to environment variable
+                if not oauth_credentials_json:
+                    oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+                
+                if oauth_credentials_json:
+                    # Use OAuth2 authentication
+                    print("🔐 Using Google OAuth2 authentication...")
+                    creds = get_oauth_credentials_from_json(oauth_credentials_json)
+                else:
+                    print("❌ Please add GOOGLE_OAUTH_CREDENTIALS_JSON to your environment variables or config file.")
+                    return None
+                
+                if creds:
+                    # Authorize the client
+                    _gc_client = gspread.authorize(creds)
+                    _gc_initialized = True
+                    print("✅ Google Sheets client initialized")
+                else:
+                    print("❌ Failed to initialize Google Sheets client")
+                    return None
         
         # Set the global gc variable for compatibility
         global gc
@@ -141,7 +184,17 @@ class SheetAnalyzer:
     
     def __init__(self, credentials: OAuthCredentials):
         """Initialize with Google credentials"""
-        self.gc = gspread.authorize(credentials)
+        # Use pre-initialized client if available, otherwise create new one
+        try:
+            from agents.finance_analyst import FinanceAnalystAgent
+            if FinanceAnalystAgent._gc is not None:
+                self.gc = FinanceAnalystAgent._gc
+                print("✅ Using pre-initialized Google Sheets client in SheetAnalyzer")
+            else:
+                self.gc = gspread.authorize(credentials)
+        except ImportError:
+            self.gc = gspread.authorize(credentials)
+        
         self.sheets_service = build('sheets', 'v4', credentials=credentials)
     
     @staticmethod
@@ -374,7 +427,7 @@ class SheetAnalyzer:
         worksheet_name: Annotated[str, "name of the worksheet"],
         header_row_index: Annotated[int, "index of the header row"],
         max_charts_per_metric: Annotated[int, "maximum number of charts to create per metric (default: 1, creates only one chart per metric)"] = 1,
-        create_local_report: Annotated[bool, "create a local HTML report instead of returning text (default: False)"] = False,
+        create_local_report: Annotated[bool, "create a local HTML report instead of returning text (default: True)"] = True,
         output_format: Annotated[str, "output format for local report: 'html', 'markdown', or 'json' (default: 'html')"] = "html"
     ) -> str:
         """
@@ -393,20 +446,42 @@ class SheetAnalyzer:
         """
         
         try:
-            # Get OAuth credentials
-            oauth_credentials_json = None
+            # Use pre-initialized credentials from FinanceAnalystAgent if available
             try:
-                from config import get_config
-                config = get_config("config.json")
-                oauth_credentials_json = config.google_oauth_credentials_json
-            except:
-                oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
-            
-            if not oauth_credentials_json:
-                return "❌ OAuth credentials not found in config or environment variables."
-            
-            creds = get_oauth_credentials_from_json(oauth_credentials_json)
-            sheet_analyzer = SheetAnalyzer(creds)
+                from agents.finance_analyst import FinanceAnalystAgent
+                if FinanceAnalystAgent._oauth_creds is not None:
+                    sheet_analyzer = SheetAnalyzer(FinanceAnalystAgent._oauth_creds)
+                    print("✅ Using pre-initialized OAuth credentials from FinanceAnalystAgent")
+                else:
+                    # Fall back to normal initialization
+                    oauth_credentials_json = None
+                    try:
+                        from config import get_config
+                        config = get_config("config.json")
+                        oauth_credentials_json = config.google_oauth_credentials_json
+                    except:
+                        oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+                    
+                    if not oauth_credentials_json:
+                        return "❌ OAuth credentials not found in config or environment variables."
+                    
+                    creds = get_oauth_credentials_from_json(oauth_credentials_json)
+                    sheet_analyzer = SheetAnalyzer(creds)
+            except ImportError:
+                # If FinanceAnalystAgent is not available, use normal initialization
+                oauth_credentials_json = None
+                try:
+                    from config import get_config
+                    config = get_config("config.json")
+                    oauth_credentials_json = config.google_oauth_credentials_json
+                except:
+                    oauth_credentials_json = os.environ.get("GOOGLE_OAUTH_CREDENTIALS_JSON")
+                
+                if not oauth_credentials_json:
+                    return "❌ OAuth credentials not found in config or environment variables."
+                
+                creds = get_oauth_credentials_from_json(oauth_credentials_json)
+                sheet_analyzer = SheetAnalyzer(creds)
             
             # Create header info structure
             header_info = {
@@ -423,36 +498,15 @@ class SheetAnalyzer:
             if df.empty:
                 return "❌ Error: Could not extract DataFrame"
             
-            # Step 1: Identify ALL rows with numeric data (or important metrics if not creating local report)
-            if create_local_report:
-                # Use all numeric rows for local report
-                all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df, sheet_name, worksheet_name)
-                
-                if not all_numeric_rows:
-                    return "❌ No rows with numeric data found to analyze"
-                
-                # Extract row indices
-                row_indices = [row_info['index'] for row_info in all_numeric_rows]
-                row_names = [row_info['name'] for row_info in all_numeric_rows]
-            else:
-                # Use important metrics for text output (original behavior)
-                important_metrics_result = SheetAnalyzer.identify_important_metrics(sheet_name, worksheet_name, header_row_index)
-                
-                if "❌ Error" in important_metrics_result:
-                    return f"❌ Failed to identify important metrics: {important_metrics_result}"
-                
-                # Extract important row indices from the result
-                import re
-                row_indices = []
-                for line in important_metrics_result.split('\n'):
-                    match = re.search(r'Row Index: (\d+)', line)
-                    if match:
-                        row_indices.append(int(match.group(1)))
-                
-                if not row_indices:
-                    return "❌ No important metrics found to analyze"
-                
-                row_names = [df.iloc[idx, 0] for idx in row_indices]
+            # Step 1: Identify ALL rows with numeric data (data-driven approach)
+            all_numeric_rows = sheet_analyzer.identify_all_numeric_rows(df, sheet_name, worksheet_name)
+            
+            if not all_numeric_rows:
+                return "❌ No rows with numeric data found to analyze"
+            
+            # Extract row indices and names
+            row_indices = [row_info['index'] for row_info in all_numeric_rows]
+            row_names = [row_info['name'] for row_info in all_numeric_rows]
             
             # Step 2: Generate commentary for each row
             commentaries = []
@@ -523,18 +577,29 @@ class SheetAnalyzer:
                 with open(report_path, 'w', encoding='utf-8') as f:
                     f.write(report_content)
                 
-                return f"✅ Local report generated successfully!\n\n📁 Report saved to: {report_path}\n📊 Charts saved to: drive/ folder\n📈 Total rows analyzed: {len(all_numeric_rows)}\n📊 Total charts created: {len(chart_paths)}"
+                return f"✅ Local report generated successfully!\n\n📁 Report saved to: {report_path}\n📊 Charts saved to: files/ folder\n📈 Total rows analyzed: {len(all_numeric_rows)}\n📊 Total charts created: {len(chart_paths)}"
             else:
-                # Original text output behavior
-                # Combine results
+                # Text output format
                 result = f"📊 Complete DataFrame Analysis for {sheet_name}"
                 if worksheet_name:
                     result += f" - {worksheet_name}"
                 result += "\n\n"
                 result += "=" * 80 + "\n"
-                result += "STEP 1: Important Metrics Identification\n"
+                result += "STEP 1: All Numeric Metrics Identification\n"
                 result += "=" * 80 + "\n"
-                result += important_metrics_result + "\n\n"
+                result += f"📊 Found {len(all_numeric_rows)} metrics with numeric data:\n\n"
+                
+                for i, row_info in enumerate(all_numeric_rows):
+                    result += f"{i+1}. {row_info['name']}\n"
+                    result += f"   📊 Type: {row_info['type']}\n"
+                    result += f"   📊 Total: {row_info['total']:.2f}\n"
+                    result += f"   📊 Average: {row_info['avg']:.2f}\n"
+                    result += f"   📊 Row Index: {row_info['index']}\n"
+                    if row_info.get('is_summary'):
+                        result += f"   📊 Summary Row: Yes\n"
+                    if row_info.get('component_rows'):
+                        result += f"   📊 Components: {len(row_info['component_rows'])} sub-metrics\n"
+                    result += "\n"
             
             result += "=" * 80 + "\n"
             result += "STEP 2: Commentary for Each Metric\n"
@@ -761,25 +826,40 @@ class SheetAnalyzer:
             row_name = df.iloc[row_idx, 0]  # First column is usually the row name
             row_data = df.iloc[row_idx, 1:]  # Skip the first column (row name)
             
-            # Convert to numeric, handling negative values in parentheses
+            # Convert to numeric, handling negative values in parentheses and formula results
             def parse_financial_value(value):
                 if pd.isna(value) or value == '':
                     return None
                 value_str = str(value).strip()
+                
                 # Handle negative values in parentheses like "(21.0)" -> -21.0
                 if value_str.startswith('(') and value_str.endswith(')'):
                     try:
-                        return -float(value_str[1:-1])
+                        return -float(value_str[1:-1].replace('$', '').replace(',', ''))
                     except ValueError:
                         return None
+                
+                # Remove currency symbols, commas, and percentage signs
+                value_str = value_str.replace('$', '').replace(',', '').replace('%', '')
+                
                 try:
                     return float(value_str)
                 except ValueError:
+                    # Try to extract numeric part from strings like "2,373$" or "4.0%"
+                    import re
+                    numeric_match = re.search(r'[-+]?\d*\.?\d+', value_str)
+                    if numeric_match:
+                        try:
+                            return float(numeric_match.group())
+                        except ValueError:
+                            return None
                     return None
             
             numeric_data = pd.Series([parse_financial_value(val) for val in row_data])
             
-            if numeric_data.isna().all():
+            # Filter out NaN values but keep the data if there are any valid values
+            valid_data = numeric_data.dropna()
+            if len(valid_data) == 0:
                 return f"📈 {row_name}: No numeric data available for charting"
             
             # Get column names (periods)
@@ -798,28 +878,31 @@ class SheetAnalyzer:
             
             for i, period in enumerate(periods):
                 period_lower = str(period).lower()
+                value = numeric_data.iloc[i]
                 
-                # Check for monthly periods (JAN, FEB, MAR, etc.)
-                if any(month in period_lower for month in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 
-                                                          'jul', 'aug', 'sep', 'oct', 'nov', 'dec']):
-                    monthly_periods.append(period)
-                    monthly_data.append(numeric_data.iloc[i])
-                # Check for quarterly periods (Q1, Q2, Q3, Q4)
-                elif any(q in period_lower for q in ['q1', 'q2', 'q3', 'q4', 'quarter']):
-                    quarterly_periods.append(period)
-                    quarterly_data.append(numeric_data.iloc[i])
-                # Check for annual periods (Full Year, Annual, Year)
-                elif any(annual in period_lower for annual in ['full year', 'annual', 'year']):
-                    annual_periods.append(period)
-                    annual_data.append(numeric_data.iloc[i])
-                else:
-                    other_periods.append(period)
-                    other_data.append(numeric_data.iloc[i])
+                # Only include periods with valid numeric data
+                if pd.notna(value):
+                    # Check for monthly periods (JAN, FEB, MAR, etc.)
+                    if any(month in period_lower for month in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 
+                                                              'jul', 'aug', 'sep', 'oct', 'nov', 'dec']):
+                        monthly_periods.append(period)
+                        monthly_data.append(value)
+                    # Check for quarterly periods (Q1, Q2, Q3, Q4)
+                    elif any(q in period_lower for q in ['q1', 'q2', 'q3', 'q4', 'quarter']):
+                        quarterly_periods.append(period)
+                        quarterly_data.append(value)
+                    # Check for annual periods (Full Year, Annual, Year)
+                    elif any(annual in period_lower for annual in ['full year', 'annual', 'year']):
+                        annual_periods.append(period)
+                        annual_data.append(value)
+                    else:
+                        other_periods.append(period)
+                        other_data.append(value)
             
-            # Create drive folder if it doesn't exist
+            # Create files folder if it doesn't exist
             import os
-            drive_folder = "drive"
-            os.makedirs(drive_folder, exist_ok=True)
+            files_folder = "files"
+            os.makedirs(files_folder, exist_ok=True)
             
             chart_paths = []
             total_charts = 0
@@ -896,7 +979,7 @@ class SheetAnalyzer:
                                     plt.tight_layout()
                                     
                                     chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_{chart_type}_stacked_chart.png"
-                                    chart_path = os.path.join(drive_folder, chart_filename)
+                                    chart_path = os.path.join(files_folder, chart_filename)
                                     plt.savefig(chart_path, dpi=300, bbox_inches='tight')
                                     plt.close()
                                     chart_paths.append(chart_path)
@@ -935,7 +1018,7 @@ class SheetAnalyzer:
                     plt.tight_layout()
                     
                     chart_filename = f"{row_name.replace(' ', '_').replace('/', '_')}_{chart_type}_chart.png"
-                    chart_path = os.path.join(drive_folder, chart_filename)
+                    chart_path = os.path.join(files_folder, chart_filename)
                     plt.savefig(chart_path, dpi=300, bbox_inches='tight')
                     plt.close()
                     chart_paths.append(chart_path)
@@ -1029,6 +1112,113 @@ class SheetAnalyzer:
         except Exception as e:
             return f"❌ Error in structured worksheet reading: {str(e)}"
     
+    def _read_worksheet_internal(self, sheet_name: str, worksheet_name: str) -> str:
+        """
+        Internal method to read a worksheet without triggering OAuth decorator.
+        This is used by read_all_worksheets to avoid repeated OAuth calls.
+        
+        Args:
+            sheet_name: Name of the Google Sheet
+            worksheet_name: Name of the worksheet
+            
+        Returns:
+            Structured analysis results from the worksheet
+        """
+        try:
+            # Step 1: Identify header using the existing sheet_analyzer instance
+            header_result = self._identify_sheet_header_internal(sheet_name, worksheet_name)
+            
+            if "❌ Error" in header_result:
+                return f"❌ Failed to identify header: {header_result}"
+            
+            # Extract header row index from the result
+            import re
+            header_match = re.search(r"Header Row Index: (\d+)", header_result)
+            if not header_match:
+                return f"❌ Could not extract header row index from: {header_result}"
+            
+            header_row_index = int(header_match.group(1))
+            
+            # Step 2: Extract structured data using the existing sheet_analyzer instance
+            data_result = self._extract_structured_data_internal(sheet_name, worksheet_name, header_row_index)
+            
+            if "❌ Error" in data_result:
+                return f"❌ Failed to extract data: {data_result}"
+            
+            # Combine results
+            result = f"📊 Read worksheet {worksheet_name} in sheet {sheet_name}"
+            result += "\n\n"
+            result += "=" * 60 + "\n"
+            result += "STEP 1: Header Identification\n"
+            result += "=" * 60 + "\n"
+            result += header_result + "\n\n"
+            result += "=" * 60 + "\n"
+            result += "STEP 2: Data Extraction\n"
+            result += "=" * 60 + "\n"
+            result += data_result
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error in structured worksheet reading: {str(e)}"
+    
+    def _identify_sheet_header_internal(self, sheet_name: str, worksheet_name: str) -> str:
+        """
+        Internal method to identify sheet header without triggering OAuth decorator.
+        """
+        try:
+            # Use the existing sheet_analyzer instance
+            header_info = self.identify_header_row(sheet_name, worksheet_name)
+            
+            if not header_info:
+                return "❌ Error: Could not identify header row"
+            
+            # Format the result similar to the static method
+            result = f"🔍 Header Identification for {sheet_name} - {worksheet_name}\n"
+            result += "=" * 60 + "\n\n"
+            result += f"✅ Header Row Index: {header_info['header_row_index']}\n"
+            result += f"📊 Header Row: {header_info['header_row']}\n"
+            result += f"📅 Periods: {header_info['periods']}\n"
+            result += f"📅 Period Type: {header_info['period_type']}\n"
+            if header_info.get('year'):
+                result += f"📅 Year: {header_info['year']}\n"
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error identifying header: {str(e)}"
+    
+    def _extract_structured_data_internal(self, sheet_name: str, worksheet_name: str, header_row_index: int) -> str:
+        """
+        Internal method to extract structured data without triggering OAuth decorator.
+        """
+        try:
+            # Create header info structure
+            header_info = {
+                'header_row_index': header_row_index,
+                'header_row': [],
+                'periods': [],
+                'period_type': 'unknown',
+                'year': None
+            }
+            
+            # Extract DataFrame using the existing sheet_analyzer instance
+            df = self.extract_dataframe(sheet_name, worksheet_name, header_info)
+            
+            if df.empty:
+                return "❌ Error: Could not extract DataFrame"
+            
+            result = f"✅ DataFrame Extracted Successfully!\n\n"
+            result += f"📊 Shape: {df.shape}\n"
+            result += f"📋 Columns: {list(df.columns)}\n\n"
+            result += f"📋 First 5 Rows:\n"
+            result += df.head().to_string()
+            
+            return result
+            
+        except Exception as e:
+            return f"❌ Error extracting DataFrame: {str(e)}"
+    
     @staticmethod
     @init_google_sheets
     def read_all_worksheets(
@@ -1081,8 +1271,9 @@ class SheetAnalyzer:
                 result += "-" * 50 + "\n"
                 
                 try:
-                    # Run structured analysis for this worksheet
-                    worksheet_result = SheetAnalyzer.read_worksheet(sheet_name, worksheet_name)
+                    # Run structured analysis for this worksheet using the existing sheet_analyzer
+                    # instead of calling the decorated read_worksheet method
+                    worksheet_result = sheet_analyzer._read_worksheet_internal(sheet_name, worksheet_name)
                     
                     if "❌ Error" in worksheet_result:
                         result += f"❌ Failed to analyze {worksheet_name}: {worksheet_result}\n"
@@ -1433,6 +1624,9 @@ class SheetAnalyzer:
         # Clean column names
         df.columns = [str(col).strip() for col in df.columns]
         
+        # Handle indented row headers - find the actual header column and merge indented headers
+        df = self._fix_indented_row_headers(df)
+        
         # Convert numeric columns
         for col in df.columns:
             if col and col.strip():
@@ -1443,6 +1637,287 @@ class SheetAnalyzer:
                     pass
         
         return df
+    
+    def _fix_indented_row_headers(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Fix indented row headers by detecting the actual header column and merging indented headers.
+        
+        This handles cases where row headers are spread across multiple columns due to indentation,
+        like in income statements where sub-items are indented under main categories.
+        
+        Args:
+            df: DataFrame with potentially indented headers
+            
+        Returns:
+            DataFrame with properly merged row headers in the first column
+        """
+        if df.empty or len(df.columns) < 2:
+            return df
+        
+        # Create a copy to work with
+        df_fixed = df.copy()
+        
+        # Find the header column (the leftmost column that contains meaningful text)
+        header_col_idx = self._find_header_column(df_fixed)
+        
+        if header_col_idx == 0:
+            # Headers are already in the first column, just clean them
+            df_fixed.iloc[:, 0] = df_fixed.iloc[:, 0].astype(str).str.strip()
+            return df_fixed
+        
+        # Merge indented headers from multiple columns into the first column
+        df_fixed = self._merge_indented_headers(df_fixed, header_col_idx)
+        
+        return df_fixed
+    
+    def _find_header_column(self, df: pd.DataFrame) -> int:
+        """
+        Find the leftmost column that contains meaningful row headers.
+        
+        Args:
+            df: DataFrame to analyze
+            
+        Returns:
+            Index of the header column
+        """
+        # First, check if the second column contains metric names (this is the actual header column)
+        if len(df.columns) > 1:
+            second_col_data = df.iloc[:, 1].astype(str)
+            metric_count = 0
+            total_count = 0
+            
+            for value in second_col_data:
+                value_str = str(value).strip()
+                if value_str and value_str.lower() not in ['nan', 'none', '']:
+                    # Check if it looks like a metric name
+                    if self._is_financial_metric_name(value_str):
+                        metric_count += 1
+                    total_count += 1
+            
+            # If second column has metric names, use it as the header column
+            if metric_count > 0 and metric_count / max(total_count, 1) > 0.3:
+                return 1
+        
+        # Check if the first column contains a hierarchical structure
+        first_col_data = df.iloc[:, 0].astype(str)
+        hierarchical_count = 0
+        total_count = 0
+        
+        for value in first_col_data:
+            value_str = str(value).strip()
+            if value_str and value_str.lower() not in ['nan', 'none', '']:
+                # Check for hierarchical patterns in the first column
+                if ((value_str.isupper() and len(value_str) > 2) or  # Section headers like "REVENUE"
+                    ('&' in value_str or 'and' in value_str.lower()) or  # Subsection headers like "Revenue & customer Growth"
+                    self._is_financial_metric_name(value_str)):  # Regular metric names
+                    hierarchical_count += 1
+                total_count += 1
+        
+        # If first column has hierarchical structure, use it
+        if hierarchical_count > 0 and hierarchical_count / max(total_count, 1) > 0.2:
+            return 0
+        
+        # Otherwise, look for the leftmost column that has meaningful text in most rows
+        for col_idx in range(len(df.columns)):
+            col_data = df.iloc[:, col_idx].astype(str)
+            
+            # Count non-empty, meaningful entries
+            meaningful_count = 0
+            total_count = 0
+            
+            for value in col_data:
+                value_str = str(value).strip()
+                if value_str and value_str.lower() not in ['nan', 'none', '']:
+                    # Check if it looks like a financial metric name
+                    if self._is_financial_metric_name(value_str):
+                        meaningful_count += 1
+                    total_count += 1
+            
+            # If this column has meaningful headers in most rows, it's our header column
+            if meaningful_count > 0 and meaningful_count / max(total_count, 1) > 0.3:
+                return col_idx
+        
+        # Default to first column if no clear header column found
+        return 0
+    
+    def _is_financial_metric_name(self, text: str) -> bool:
+        """
+        Check if text looks like a financial metric name.
+        
+        Args:
+            text: Text to check
+            
+        Returns:
+            True if text looks like a financial metric name
+        """
+        text_lower = text.lower()
+        
+        # Financial keywords that indicate this is a metric name
+        financial_keywords = [
+            'revenue', 'sales', 'income', 'profit', 'loss', 'margin', 'cost', 'expense',
+            'gross', 'operating', 'net', 'ebitda', 'ebit', 'cash', 'flow', 'earnings',
+            'assets', 'liabilities', 'equity', 'debt', 'capital', 'marketing', 'cac',
+            'customers', 'ltv', 'churn', 'arpu', 'total', 'sum', 'balance', 'receivable',
+            'payable', 'inventory', 'depreciation', 'amortization', 'interest', 'tax'
+        ]
+        
+        # Check if text contains financial keywords
+        if any(keyword in text_lower for keyword in financial_keywords):
+            return True
+        
+        # Check if text looks like a hierarchical structure (contains common prefixes)
+        hierarchical_patterns = [
+            r'^\s*[•\-\*]\s+',  # Bullet points
+            r'^\s*\d+\.\s+',    # Numbered lists
+            r'^\s*[A-Z][a-z]+\s+',  # Capitalized words
+            r'^\s*[a-z]+\s+',   # Lowercase words
+        ]
+        
+        import re
+        for pattern in hierarchical_patterns:
+            if re.match(pattern, text):
+                return True
+        
+        return False
+    
+    def _merge_indented_headers(self, df: pd.DataFrame, header_col_idx: int) -> pd.DataFrame:
+        """
+        Merge indented headers from multiple columns into the first column.
+        
+        Args:
+            df: DataFrame with indented headers
+            header_col_idx: Index of the main header column
+            
+        Returns:
+            DataFrame with merged headers in the first column
+        """
+        # Create a new DataFrame with merged headers
+        merged_headers = []
+        
+        # Track the current parent category for hierarchical merging
+        current_parent = ""
+        current_section = ""
+        
+        for row_idx in range(len(df)):
+            # Get the main header from the header column
+            main_header = str(df.iloc[row_idx, header_col_idx]).strip()
+            
+            # If header_col_idx is 1 (Column B), we need to look at Column A for section/subsection context
+            if header_col_idx == 1 and len(df.columns) > 0:
+                section_header = str(df.iloc[row_idx, 0]).strip()
+                
+                # Check if this is a section header (like "REVENUE", "COSTS")
+                if section_header.isupper() and len(section_header) > 2:
+                    current_section = section_header
+                    current_parent = ""
+                    merged_headers.append(section_header)
+                    continue
+                
+                # Check if this is a subsection header (like "Revenue & customer Growth", "Month Recurring Revenue")
+                if section_header and not section_header.isupper() and len(section_header) > 3:
+                    # This is a subsection, update current parent
+                    current_parent = section_header
+                    merged_headers.append(f"{current_section} - {section_header}")
+                    continue
+                
+                # For regular rows, use the metric name from Column B
+                if main_header and main_header.lower() not in ['nan', 'none', '']:
+                    if current_parent:
+                        # This is a sub-item under the current parent
+                        merged_headers.append(f"{current_section} - {current_parent} - {main_header}")
+                    elif current_section:
+                        # This is a direct item under the current section
+                        merged_headers.append(f"{current_section} - {main_header}")
+                    else:
+                        # No parent context, use metric name as is
+                        merged_headers.append(main_header)
+                else:
+                    # No metric name, use section header if available
+                    if section_header:
+                        merged_headers.append(section_header)
+                    else:
+                        merged_headers.append("")
+            else:
+                # Original logic for when header column is Column A
+                # Check if this is a section header (like "REVENUE", "COSTS")
+                if main_header.isupper() and len(main_header) > 2:
+                    current_section = main_header
+                    current_parent = ""
+                    merged_headers.append(main_header)
+                    continue
+                
+                # Check if this is a subsection header (like "Revenue & customer Growth", "Month Recurring Revenue")
+                if main_header and not main_header.isupper() and len(main_header) > 3:
+                    # This is a subsection, update current parent
+                    current_parent = main_header
+                    merged_headers.append(f"{current_section} - {main_header}")
+                    continue
+                
+                # For regular rows, check if there's a metric name in the next column (Column B)
+                metric_name = ""
+                if len(df.columns) > 1:
+                    metric_name = str(df.iloc[row_idx, 1]).strip()
+                
+                # If we have a metric name in Column B, use it as the main identifier
+                if metric_name and metric_name.lower() not in ['nan', 'none', '']:
+                    if current_parent:
+                        # This is a sub-item under the current parent
+                        merged_headers.append(f"{current_section} - {current_parent} - {metric_name}")
+                    elif current_section:
+                        # This is a direct item under the current section
+                        merged_headers.append(f"{current_section} - {metric_name}")
+                    else:
+                        # No parent context, use metric name as is
+                        merged_headers.append(metric_name)
+                elif main_header:
+                    # Fall back to main header if no metric name in Column B
+                    if current_parent and main_header:
+                        merged_headers.append(f"{current_section} - {current_parent} - {main_header}")
+                    elif current_section and main_header:
+                        merged_headers.append(f"{current_section} - {main_header}")
+                    else:
+                        merged_headers.append(main_header)
+                else:
+                    # No header at all
+                    merged_headers.append("")
+        
+        # Create new DataFrame with merged headers
+        df_fixed = df.copy()
+        df_fixed.iloc[:, 0] = merged_headers
+        
+        # Remove the original header columns (keep only the merged first column and data columns)
+        if header_col_idx > 0:
+            # Keep first column (merged headers) and all columns after header_col_idx
+            columns_to_keep = [0] + list(range(header_col_idx + 1, len(df.columns)))
+            df_fixed = df_fixed.iloc[:, columns_to_keep]
+        
+        return df_fixed
+    
+    def _is_sub_item(self, main_header: str, parent_header: str) -> bool:
+        """
+        Check if main_header is a sub-item of parent_header.
+        
+        Args:
+            main_header: The main header text
+            parent_header: The potential parent header text
+            
+        Returns:
+            True if main_header appears to be a sub-item
+        """
+        main_lower = main_header.lower()
+        parent_lower = parent_header.lower()
+        
+        # Check for common sub-item patterns
+        sub_item_indicators = [
+            # Check if main header is more specific than parent
+            len(main_lower) > len(parent_lower) and parent_lower in main_lower,
+            # Check for common sub-item keywords
+            any(keyword in main_lower for keyword in ['sub', 'detail', 'breakdown', 'component', 'item']),
+            # Check for indentation patterns (shorter text might be indented)
+            len(main_header.strip()) < len(parent_header.strip()) and len(main_header.strip()) > 0
+        ]
+        
+        return any(sub_item_indicators)
     
     def identify_important_rows(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
         """
@@ -1465,10 +1940,11 @@ class SheetAnalyzer:
         ]
         
         for index, row in df.iterrows():
-            # Check if the first column contains important keywords
-            first_col = str(row.iloc[0]).lower()
+            # Get the row header (now properly merged in first column)
+            row_header = str(row.iloc[0]).lower()
             
-            is_important = any(keyword in first_col for keyword in important_keywords)
+            # Check if the row header contains important keywords
+            is_important = any(keyword in row_header for keyword in important_keywords)
             
             # Check if row has significant numeric values
             numeric_values = pd.to_numeric(row.iloc[1:], errors='coerce').dropna()
@@ -1500,9 +1976,53 @@ class SheetAnalyzer:
         
         for index, row in df.iterrows():
             row_name = str(row.iloc[0])
-            numeric_values = pd.to_numeric(row.iloc[1:], errors='coerce').dropna()
             
-            if len(numeric_values) > 0 and numeric_values.abs().sum() > 0:
+            # Clean and parse financial values (improved to handle formula results)
+            def clean_financial_value(value):
+                if pd.isna(value) or value == '':
+                    return None
+                value_str = str(value).strip()
+                
+                # Handle negative values in parentheses like "(21.0)" -> -21.0
+                if value_str.startswith('(') and value_str.endswith(')'):
+                    try:
+                        return -float(value_str[1:-1].replace('$', '').replace(',', ''))
+                    except ValueError:
+                        return None
+                
+                # Remove currency symbols, commas, and percentage signs
+                value_str = value_str.replace('$', '').replace(',', '').replace('%', '')
+                
+                # Handle formula results that might be strings
+                try:
+                    return float(value_str)
+                except ValueError:
+                    # Try to extract numeric part from strings like "2,373$" or "4.0%"
+                    import re
+                    numeric_match = re.search(r'[-+]?\d*\.?\d+', value_str)
+                    if numeric_match:
+                        try:
+                            return float(numeric_match.group())
+                        except ValueError:
+                            return None
+                    return None
+            
+            # Check if numeric data starts from column 2 (after hierarchical merging)
+            # Try both column 1 and column 2 to see which has more numeric data
+            values_col1 = [clean_financial_value(v) for v in row.iloc[1:]]
+            values_col2 = [clean_financial_value(v) for v in row.iloc[2:]]
+            
+            numeric_values_col1 = pd.Series([v for v in values_col1 if v is not None])
+            numeric_values_col2 = pd.Series([v for v in values_col2 if v is not None])
+            
+            # Use the column range that has more numeric data
+            if len(numeric_values_col2) > len(numeric_values_col1):
+                numeric_values = numeric_values_col2
+            else:
+                numeric_values = numeric_values_col1
+            
+            # Include rows that have any numeric data (even if sum is 0, as some metrics might legitimately be 0)
+            if len(numeric_values) > 0:
                 # Check if this is a summary row (contains 'total', 'sum', etc.)
                 summary_keywords = ['total', 'sum', 'net', 'gross', 'operating']
                 is_summary = any(keyword in row_name.lower() for keyword in summary_keywords)
@@ -2576,3 +3096,4 @@ class SheetUtils:
             
         except Exception as e:
             return f"Error computing financial ratios: {e}" 
+    

@@ -46,9 +46,9 @@ class ResearchUtils:
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         })
         
-        # Create drive folder if it doesn't exist
-        self.drive_folder = Path("drive")
-        self.drive_folder.mkdir(exist_ok=True)
+        # Create files folder if it doesn't exist
+        self.files_folder = Path("files")
+        self.files_folder.mkdir(exist_ok=True)
     
     @staticmethod
     def _index_filings_from_company_website(
@@ -102,10 +102,21 @@ class ResearchUtils:
             print(f"🔍 Step 3: Searching for financial documents...")
             all_documents = []
             
-            for ir_site in ir_sites:
+            # Prioritize the first (most relevant) IR site
+            for i, ir_site in enumerate(ir_sites):
                 print(f"   🔍 Searching: {ir_site}")
                 documents = ResearchUtils._search_financial_documents(ir_site, company_name)
-                all_documents.extend(documents)
+                
+                if documents:
+                    print(f"   ✅ Found {len(documents)} documents on {ir_site}")
+                    all_documents.extend(documents)
+                    
+                    # If we found documents on the primary site, we can stop early
+                    if i == 0 and len(documents) >= 3:
+                        print(f"   🎯 Found sufficient documents on primary site, skipping others")
+                        break
+                else:
+                    print(f"   ⚠️ No documents found on {ir_site}")
             
             # Remove duplicates based on URL
             seen_urls = set()
@@ -702,7 +713,9 @@ class ResearchUtils:
                         '--disable-accelerated-2d-canvas',
                         '--no-first-run',
                         '--no-zygote',
-                        '--disable-gpu'
+                        '--disable-gpu',
+                        '--disable-web-security',
+                        '--disable-features=VizDisplayCompositor'
                     ]
                 )
                 
@@ -716,10 +729,22 @@ class ResearchUtils:
                 
                 # Navigate to the page
                 print(f"🌐 Loading page with browser simulation: {ir_url}")
-                page.goto(ir_url, wait_until='networkidle', timeout=30000)
+                
+                # Try different wait strategies with increased timeout
+                try:
+                    # First try with networkidle (faster for simple sites)
+                    page.goto(ir_url, wait_until='networkidle', timeout=45000)
+                except Exception as e:
+                    print(f"   ⚠️ Networkidle timeout, trying domcontentloaded: {e}")
+                    try:
+                        # Fallback to domcontentloaded (more reliable)
+                        page.goto(ir_url, wait_until='domcontentloaded', timeout=45000)
+                    except Exception as e2:
+                        print(f"   ❌ Failed to load page: {e2}")
+                        return []
                 
                 # Wait a bit for dynamic content to load
-                page.wait_for_timeout(3000)
+                page.wait_for_timeout(5000)
                 
                 # Look for document links
                 document_patterns = [
@@ -731,6 +756,10 @@ class ResearchUtils:
                     r'quarterly\s*report',
                     r'financial\s*results',
                     r'sec\s*filing',
+                    r'pillar\s*3',
+                    r'regulatory\s*disclosure',
+                    r'financial\s*statements',
+                    r'results\s*and\s*reports',
                     r'\.pdf$',
                     r'\.doc$',
                     r'\.xlsx$'
@@ -845,7 +874,7 @@ class ResearchUtils:
             filename = '_'.join(filename_parts) + ext
             
             # Create company folder
-            company_folder = Path("drive") / safe_company
+            company_folder = Path("files") / safe_company
             company_folder.mkdir(exist_ok=True)
             
             filepath = company_folder / filename
@@ -1014,13 +1043,13 @@ class ResearchUtils:
             JSON string with list of downloaded documents
         """
         try:
-            drive_folder = Path("drive")
-            if not drive_folder.exists():
+            files_folder = Path("files")
+            if not files_folder.exists():
                 return json.dumps({"documents": [], "total": 0})
             
             documents = []
             
-            for company_folder in drive_folder.iterdir():
+            for company_folder in files_folder.iterdir():
                 if company_folder.is_dir():
                     if company_name and company_name.lower() not in company_folder.name.lower():
                         continue
