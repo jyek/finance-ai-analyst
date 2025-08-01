@@ -73,10 +73,11 @@ def main():
         print("\n" + "=" * 50)
         print("🎯 Ready to chat! Type 'quit' or 'exit' to end the session.")
         print("💡 Example requests:")
-        print("   - 'List the sheets in my Google Drive'")
-        print("   - 'Analyze the income statement in my Google Sheet'")
-        print("   - 'Get income statements for AAPL and GOOGL'")
-        print("   - 'Run benchmarking analysis for 2022-2024 in my Google Sheet'")
+        print("   - Analyze worksheet [name] in google sheet [name]")
+        print("   - Analyze google sheet [name]")
+        print("   - Get the latest investor presentation for [company]")
+        print("   - Get income statements for AAPL and GOOGL")
+        print("   - List google sheets")
         print("=" * 50 + "\n")
         
         # Start the chat with the Finance Analyst initiating
